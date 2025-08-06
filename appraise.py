@@ -497,7 +497,8 @@ class PaintingAppraiser:
                 quality=appraisal_response.quality,
                 painting_info=painting_info
             )
-            
+
+            self.print_appraisal_findings(appraisal)
             return appraisal
                 
         except Exception as e:
@@ -674,6 +675,7 @@ class PaintingAppraiser:
                         if not appraisal:
                             processed_urls.add(painting_basic.url)
                             continue
+                        print("─" * 80)
                         
                         best_estimate = appraisal.estimated_value_best
                         # Ensure best_estimate is a number
@@ -684,12 +686,7 @@ class PaintingAppraiser:
                                 best_estimate = 0
                         
                         # Add all appraisals to the list
-                        appraisals_list.append(appraisal)
-                        
-                        # Print detailed appraisal findings to console
-                        self.print_appraisal_findings(appraisal)
-                        print("─" * 80)
-                    
+                        appraisals_list.append(appraisal)                                    
                         processed_urls.add(painting_basic.url)
                         
                         # Update data
@@ -742,19 +739,6 @@ class PaintingAppraiser:
         appraisals_list.sort(key=lambda x: self._get_numeric_value(x.estimated_value_best), reverse=True)
         
         return appraisals_list
-    
-    def _get_numeric_value(self, value):
-        """Convert a value to numeric for sorting."""
-        if isinstance(value, (int, float)):
-            return value
-        if isinstance(value, str):
-            try:
-                return float(value.replace('$', '').replace(',', ''))
-            except:
-                return 0
-        return 0
-
-
 
     def print_appraisal_findings(self, appraisal: Appraisal):
         """Print detailed appraisal findings for a single painting."""
@@ -793,37 +777,39 @@ class PaintingAppraiser:
         
         if appraisal.risk_factors:
             print(f"   Risk Factors: {appraisal.risk_factors}")
+    
+    def _get_numeric_value(self, value):
+        """Convert a value to numeric for sorting."""
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            try:
+                return float(value.replace('$', '').replace(',', ''))
+            except:
+                return 0
+        return 0
 
-    def print_summary(self, results: List[Appraisal]):
-        """Print a summary of all paintings sorted by estimated value."""
-        if not results:
-            print(f"\nNo paintings were appraised.")
-            return
+    def appraise_single_url(self, painting_url: str) -> List[Appraisal]:
+        """
+        Appraise a single painting from a specific URL without saving to file.
         
-        print(f"\n{'='*60}")
-        print(f"SUMMARY: Found {len(results)} paintings sorted by estimated value")
-        print(f"{'='*60}")
+        Args:
+            painting_url: URL to the painting's detail page
+            
+        Returns:
+            List containing single Appraisal object or empty list if failed
+        """
+        # Get painting details from the URL
+        painting_info = self.get_painting_details(painting_url)
+        if not painting_info:
+            return []
         
-        for i, appraisal in enumerate(results, 1):
-            painting = appraisal.painting_info
-            print(f"\n{i}. {painting.title}")
-            print(f"   Artist: {appraisal.artist or 'Unknown'}")
-            if appraisal.description_summary:
-                print(f"   Description: {appraisal.description_summary[:150]}...")
-            if appraisal.medium:
-                print(f"   Medium: {appraisal.medium}")
-            if appraisal.dimensions:
-                print(f"   Dimensions: {appraisal.dimensions}")
-            print(f"   Current Price: {painting.current_price}")
-            print(f"   Estimated Value: ${appraisal.estimated_value_best:,.2f}")
-            print(f"   Confidence: {appraisal.confidence_level}")
-            print(f"   URL: {painting.url}")
-            if appraisal.reasoning:
-                print(f"   Reasoning: {appraisal.reasoning[:200]}...")
-            if appraisal.web_search_summary:
-                print(f"   Research: {appraisal.web_search_summary[:150]}...")
-            if appraisal.authentication_notes:
-                print(f"   Authentication: {appraisal.authentication_notes[:100]}...")
+        # Appraise the painting
+        appraisal = self.appraise_painting(painting_info)
+        if not appraisal:
+            return []
+        
+        return [appraisal]
 
 
 def main():
@@ -838,6 +824,8 @@ def main():
                       help='Include ended auctions as well')
     parser.add_argument('--no-include-ended-auctions', dest='include_ended_auctions', action='store_false',
                       help='Only process paintings with active auctions (default)')
+    parser.add_argument('--url', type=str,
+                      help='Appraise a specific painting URL instead of scanning all paintings')
     
     args = parser.parse_args()
     
@@ -854,29 +842,23 @@ def main():
         sys.exit(1)
     
     auction_filter_msg = "active auctions only" if active_auctions_only else "all auctions (including ended)"
-    print(f"Starting painting appraisal ({auction_filter_msg})")
-    print(f"Processing up to {args.max_pages} pages")
+    if args.url:
+        print(f"Starting single painting appraisal")
+    else:
+        print(f"Starting painting appraisal ({auction_filter_msg})")
+        print(f"Processing up to {args.max_pages} pages")
     
     # Initialize the appraiser
     appraiser = PaintingAppraiser(api_key, active_auctions_only)
     
     try:
-        # Run the appraisal
-        results = appraiser.run_appraisal(args.max_pages, args.delay, args.appraisals_file)
-        
-        # Display results (they're already saved in the appraisals file)
-        print(f"\nResults saved to {args.appraisals_file}")
-        appraiser.print_summary(results)
-        
-        # Print just the URLs for easy copying (sorted by value)
-        if results:
-            print(f"\n{'='*60}")
-            print("PAINTING URLS (SORTED BY VALUE - HIGHEST FIRST):")
-            print(f"{'='*60}")
-            for appraisal in results:
-                best_estimate = appraiser._get_numeric_value(appraisal.estimated_value_best)
-                print(f"${best_estimate:,.2f} - {appraisal.painting_info.url}")
-        
+        # Run appraisal (single URL or batch)
+        if args.url:
+            results = appraiser.appraise_single_url(args.url)
+            print(f"\nSingle URL appraisal completed (not saved to file)")
+        else:
+            results = appraiser.run_appraisal(args.max_pages, args.delay, args.appraisals_file)
+            print(f"\nResults saved to {args.appraisals_file}")    
     except KeyboardInterrupt:
         print("\nProcess interrupted by user")
     except Exception as e:
