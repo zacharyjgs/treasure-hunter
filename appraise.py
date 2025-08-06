@@ -409,7 +409,8 @@ class PaintingAppraiser:
             5. Subject matter - Describe what the artwork depicts
             6. Overall condition - Note any visible damage, wear, or restoration
             7. Frame and construction details - Examine the frame, stretcher bars, and frame joints as these can indicate the artwork's age and period value
-            8. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
+            8. Back of painting examination - Look for auction house labels, gallery stickers, exhibition tags, or other markings that indicate provenance
+            9. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
 
             STEP 2 - RESEARCH AND AUTHENTICATION (Only after Step 1 is complete):
             Use web search to research the following:
@@ -443,6 +444,7 @@ class PaintingAppraiser:
                - Verify signature style matches research findings; note any red flags
                - Assess condition impact on value and factor restoration costs
                - Examine frame construction, stretcher bars, and joinery methods as period indicators
+               - Check for auction house labels, gallery tags, or exhibition markings that establish provenance
                - Consider attribution certainty (signed vs. attributed vs. uncertain)
 
             3. MARKET VALUATION WITH BIAS ADJUSTMENT:
