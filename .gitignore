@@ -1,3 +1,7 @@
 .idea/
 .venv/
 .python-version
+
+# Appraisal results and data files
+appraisals.json
+*.json.backup
