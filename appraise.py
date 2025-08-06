@@ -92,16 +92,18 @@ class AppraisalResponse(BaseModel):
 
 
 class PaintingAppraiser:
-    def __init__(self, openai_api_key: str, active_auctions_only: bool = True):
+    def __init__(self, openai_api_key: str, active_auctions_only: bool = True, max_images: Optional[int] = None):
         """
         Initialize the painting appraiser.
         
         Args:
             openai_api_key: OpenAI API key
             active_auctions_only: Only process paintings with active auctions
+            max_images: Maximum number of images to send to AI per painting (None for no limit)
         """
         self.client = OpenAI(api_key=openai_api_key)
         self.active_auctions_only = active_auctions_only
+        self.max_images = max_images
         self.base_url = "https://shopgoodwill.com"
 
     def _is_valid_product_image(self, image_url: str) -> bool:
@@ -385,6 +387,11 @@ class PaintingAppraiser:
         if not available_images:
             print(f"No image URLs for painting: {painting_info.title}")
             return None
+        
+        # Limit number of images if max_images is specified
+        if self.max_images is not None and len(available_images) > self.max_images:
+            available_images = available_images[:self.max_images]
+            print(f"📋 Limiting to {self.max_images} images (out of {len(painting_info.image_urls)} available)")
         
         try:
             # Construct the prompt for appraisal with web search capabilities
@@ -851,6 +858,8 @@ def main():
                       help='Only process paintings with active auctions (default)')
     parser.add_argument('--url', type=str,
                       help='Appraise a specific painting URL instead of scanning all paintings')
+    parser.add_argument('--max-images', type=int, default=None,
+                      help='Maximum number of images to send to AI for each painting (default: no limit)')
     
     args = parser.parse_args()
     
@@ -867,12 +876,16 @@ def main():
         sys.exit(1)
     
     auction_filter_msg = "active auctions only" if active_auctions_only else "all auctions (including ended)"
+    max_images_msg = f"max {args.max_images} images per painting" if args.max_images else "all available images"
     if not args.url:
         print(f"Starting painting appraisal ({auction_filter_msg})")
         print(f"Processing up to {args.max_pages} pages")
+        print(f"Using {max_images_msg}")
+    else:
+        print(f"Single painting appraisal using {max_images_msg}")
     
     # Initialize the appraiser
-    appraiser = PaintingAppraiser(api_key, active_auctions_only)
+    appraiser = PaintingAppraiser(api_key, active_auctions_only, args.max_images)
     
     try:
         # Run appraisal (single URL or batch)
