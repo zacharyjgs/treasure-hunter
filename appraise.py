@@ -28,6 +28,20 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 
+# OpenAI Model Pricing (2025 rates per 1M tokens)
+# Note: Reasoning tokens are priced the same as output tokens
+MODEL_PRICING = {
+    "o4-mini": {"input": 1.10, "output": 4.40, "cached": 0.275},
+    "gpt-4o": {"input": 2.50, "output": 10.00, "cached": 1.25},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached": 0.075},
+    "gpt-4.1": {"input": 2.00, "output": 8.00, "cached": 0.50},
+    "gpt-4.1-mini": {"input": 0.40, "output": 1.60, "cached": 0.10},
+    "gpt-4.1-nano": {"input": 0.10, "output": 0.40, "cached": 0.025},
+    "nectarine-alpha-2025-07-25": {"input": 0.00, "output": 0.00, "cached": 0.00},
+    "nectarine-alpha-new-minimal-effort-2025-07-25": {"input": 0.00, "output": 0.00, "cached": 0.00},
+}
+
+
 class PaintingInfo(BaseModel):
     """Information about a painting listing."""
     url: str
@@ -98,7 +112,7 @@ class AppraisalResponse(BaseModel):
 
 
 class PaintingAppraiser:
-    def __init__(self, openai_api_key: str, active_auctions_only: bool = True, max_images: Optional[int] = None):
+    def __init__(self, openai_api_key: str, active_auctions_only: bool = True, max_images: Optional[int] = None, model: str = "o4-mini"):
         """
         Initialize the painting appraiser.
         
@@ -106,11 +120,21 @@ class PaintingAppraiser:
             openai_api_key: OpenAI API key
             active_auctions_only: Only process paintings with active auctions
             max_images: Maximum number of images to send to AI per painting (None for no limit)
+            model: OpenAI model to use for appraisal (default: o4-mini)
         """
         self.client = OpenAI(api_key=openai_api_key)
         self.active_auctions_only = active_auctions_only
         self.max_images = max_images
+        self.model = model
         self.base_url = "https://shopgoodwill.com"
+        
+        # Cost tracking
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cached_tokens = 0
+        self.total_reasoning_tokens = 0
+        self.total_tokens = 0
+        self.total_requests = 0
 
     def _is_valid_product_image(self, image_url: str) -> bool:
         """
@@ -406,7 +430,7 @@ class PaintingAppraiser:
 
             NOTE: You will be provided with {len(available_images)} image(s) of this artwork. Please examine all images carefully as they may show different angles, details, signatures, or conditions that are important for your assessment.
 
-            STEP 1 - BASIC IDENTIFICATION (Complete this first):
+            STEP 1 - BASIC IDENTIFICATION:
             Examine all provided images carefully and determine:
             1. Artist name - Look for signatures, monograms, or stamps in the image; also check if artist is mentioned in title/description
             2. Signature details - Describe any visible signatures, monograms, stamps, or artist marks found on the artwork
@@ -419,7 +443,7 @@ class PaintingAppraiser:
             9. Back markings - Look for auction house labels, gallery stickers, exhibition tags, or other markings that indicate provenance
             10. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
 
-            STEP 2 - RESEARCH AND AUTHENTICATION (Only after Step 1 is complete):
+            STEP 2 - RESEARCH AND AUTHENTICATION:
             Use web search to research the following:
             
             1. Artist Market Research:
@@ -466,7 +490,7 @@ class PaintingAppraiser:
                - Explain valuation rationale based on all research findings
                - Be especially conservative with unknown/unverified artists
 
-            Provide your response using the structured output format with comprehensive analysis including all web research findings.
+            Complete ALL 3 STEPS and provide your response using the structured output format with comprehensive analysis including all web research findings.
             
             Known Information:
             - Title: {painting_info.title}
@@ -476,7 +500,7 @@ class PaintingAppraiser:
             # Debug: Print the image URLs being sent to OpenAI
             print(f"📝 TITLE: {painting_info.title}")
             print(f"🔗 LISTING URL: {painting_info.url}")
-            print(f"💵 CURRENT PRICE: {painting_info.current_price}")
+            print(f"🏷️ CURRENT PRICE: {painting_info.current_price}")
             print(f"🖼️ IMAGES ({len(available_images)}): {available_images}")
             
             # Build content array with text prompt and all available images
@@ -491,7 +515,7 @@ class PaintingAppraiser:
             
             # Use Responses API with web search and structured outputs
             response = self.client.responses.parse(
-                model="o4-mini",
+                model=self.model,
                 input=[
                     {
                         "role": "user",
@@ -508,6 +532,35 @@ class PaintingAppraiser:
             
             # Extract structured data from Responses API using output_parsed
             appraisal_response = response.output_parsed
+            
+            # Extract cost information from response
+            usage = response.usage if hasattr(response, 'usage') else None
+            if usage:
+                input_tokens = usage.input_tokens if hasattr(usage, 'input_tokens') else 0
+                output_tokens = usage.output_tokens if hasattr(usage, 'output_tokens') else 0
+                total_tokens = usage.total_tokens if hasattr(usage, 'total_tokens') else (input_tokens + output_tokens)
+                
+                # Extract cached tokens from input_tokens_details
+                cached_tokens = 0
+                if hasattr(usage, 'input_tokens_details') and usage.input_tokens_details:
+                    cached_tokens = getattr(usage.input_tokens_details, 'cached_tokens', 0)
+                fresh_input_tokens = input_tokens - cached_tokens
+                
+                # Extract reasoning tokens from output_tokens_details
+                reasoning_tokens = 0
+                if hasattr(usage, 'output_tokens_details') and usage.output_tokens_details:
+                    reasoning_tokens = getattr(usage.output_tokens_details, 'reasoning_tokens', 0)
+                
+                # Update running totals
+                self.total_input_tokens += input_tokens
+                self.total_output_tokens += output_tokens
+                self.total_cached_tokens += cached_tokens
+                self.total_reasoning_tokens += reasoning_tokens
+                self.total_tokens += total_tokens
+                self.total_requests += 1
+                
+                # Calculate cost for this request using helper method
+                cost_breakdown = self._calculate_cost(input_tokens, output_tokens, cached_tokens, reasoning_tokens, self.model)
             
             # Create Appraisal object with the extracted data and painting info
             appraisal = Appraisal(
@@ -539,6 +592,26 @@ class PaintingAppraiser:
             )
 
             self.print_appraisal_findings(appraisal)
+            
+            # Display API usage information at the end
+            if usage:
+                # Display condensed cost and token info on single line
+                if "error" not in cost_breakdown:
+                    if reasoning_tokens > 0:
+                        if cached_tokens > 0:
+                            print(f"\n💰 API USAGE: ${cost_breakdown['total_cost']:.4f} | {fresh_input_tokens:,} fresh + {cached_tokens:,} cached + {output_tokens:,} output + {reasoning_tokens:,} reasoning = {total_tokens:,} tokens")
+                        else:
+                            print(f"\n💰 API USAGE: ${cost_breakdown['total_cost']:.4f} | {input_tokens:,} input + {output_tokens:,} output + {reasoning_tokens:,} reasoning = {total_tokens:,} tokens")
+                    else:
+                        if cached_tokens > 0:
+                            print(f"\n💰 API USAGE: ${cost_breakdown['total_cost']:.4f} | {fresh_input_tokens:,} fresh + {cached_tokens:,} cached + {output_tokens:,} output = {total_tokens:,} tokens")
+                        else:
+                            print(f"\n💰 API USAGE: ${cost_breakdown['total_cost']:.4f} | {input_tokens:,} input + {output_tokens:,} output = {total_tokens:,} tokens")
+                else:
+                    print(f"\n💰 API USAGE: Cost calculation error | {total_tokens:,} tokens")
+            else:
+                print(f"\n💰 API USAGE: Usage data not available")
+            
             return appraisal
                 
         except Exception as e:
@@ -810,7 +883,7 @@ class PaintingAppraiser:
         print(f"BACK MARKINGS: {appraisal.back_markings or 'None noted'}")
         print(f"FRAME CONSTRUCTION: {appraisal.frame_construction or 'Not analyzed'}")
         
-        print(f"\n💰 VALUATION:")
+        print(f"\n💎 VALUATION:")
         print(f"   Range: ${appraisal.estimated_value_min:,.2f} - ${appraisal.estimated_value_max:,.2f}")
         print(f"   Best Estimate: ${appraisal.estimated_value_best:,.2f}")
         print(f"   Confidence Level: {appraisal.confidence_level}")
@@ -848,6 +921,76 @@ class PaintingAppraiser:
             except:
                 return 0
         return 0
+    
+    def _calculate_cost(self, input_tokens: int, output_tokens: int, cached_tokens: int, reasoning_tokens: int = 0, model: str = "o4-mini") -> dict:
+        """
+        Calculate cost breakdown for given token usage.
+        
+        Args:
+            input_tokens: Total input tokens
+            output_tokens: Total output tokens (includes reasoning tokens)
+            cached_tokens: Cached input tokens
+            reasoning_tokens: Reasoning tokens (for display only - already included in output_tokens)
+            model: Model name for pricing lookup
+            
+        Returns:
+            Dictionary with cost breakdown
+        """
+        if model not in MODEL_PRICING:
+            return {"error": f"Unknown model: {model}"}
+            
+        pricing = MODEL_PRICING[model]
+        fresh_input_tokens = input_tokens - cached_tokens
+        
+        fresh_input_cost = (fresh_input_tokens / 1_000_000) * pricing["input"]
+        cached_input_cost = (cached_tokens / 1_000_000) * pricing["cached"]
+        input_cost = fresh_input_cost + cached_input_cost
+        output_cost = (output_tokens / 1_000_000) * pricing["output"]  # Already includes reasoning tokens
+        total_cost = input_cost + output_cost
+        
+        return {
+            "fresh_input_cost": fresh_input_cost,
+            "cached_input_cost": cached_input_cost,
+            "input_cost": input_cost,
+            "output_cost": output_cost,
+            "reasoning_tokens": reasoning_tokens,  # For display purposes
+            "total_cost": total_cost,
+            "model": model
+        }
+
+    def print_cost_summary(self):
+        """Print final cost summary for the session."""
+        print(f"\n💰 FINAL COST SUMMARY:")
+        print(f"{'='*50}")
+        print(f"Total Requests: {self.total_requests}")
+        print(f"Input Tokens: {self.total_input_tokens:,}")
+        print(f"  └─ Cached: {self.total_cached_tokens:,}")
+        print(f"  └─ Fresh: {self.total_input_tokens - self.total_cached_tokens:,}")
+        print(f"Output Tokens: {self.total_output_tokens:,}")
+        if self.total_reasoning_tokens > 0:
+            print(f"Reasoning Tokens: {self.total_reasoning_tokens:,}")
+        print(f"Total Tokens: {self.total_tokens:,}")
+        
+        if self.total_tokens > 0:
+            # Calculate estimated costs using helper method
+            cost_breakdown = self._calculate_cost(
+                self.total_input_tokens, 
+                self.total_output_tokens, 
+                self.total_cached_tokens,
+                self.total_reasoning_tokens,
+                self.model
+            )
+            
+            if "error" not in cost_breakdown:
+                print(f"Estimated Input Cost: ${cost_breakdown['input_cost']:.4f}")
+                if self.total_cached_tokens > 0:
+                    print(f"  └─ Fresh input: ${cost_breakdown['fresh_input_cost']:.4f}")
+                    print(f"  └─ Cached input: ${cost_breakdown['cached_input_cost']:.4f}")
+                print(f"Estimated Output Cost: ${cost_breakdown['output_cost']:.4f}")
+                if self.total_reasoning_tokens > 0:
+                    print(f"  └─ Includes {self.total_reasoning_tokens:,} reasoning tokens")
+                print(f"Estimated Total Cost: ${cost_breakdown['total_cost']:.4f}")
+                print(f"Model: {cost_breakdown['model']}")
 
     def appraise_single_url(self, painting_url: str) -> List[Appraisal]:
         """
@@ -888,6 +1031,8 @@ def main():
                       help='Appraise a specific painting URL instead of scanning all paintings')
     parser.add_argument('--max-images', type=int, default=None,
                       help='Maximum number of images to send to AI for each painting (default: no limit)')
+    parser.add_argument('--model', type=str, default='o4-mini',
+                      help='OpenAI model to use for appraisal (default: o4-mini)')
     
     args = parser.parse_args()
     
@@ -909,23 +1054,30 @@ def main():
         print(f"Starting painting appraisal ({auction_filter_msg})")
         print(f"Processing up to {args.max_pages} pages")
         print(f"Using {max_images_msg}")
+        print(f"Model: {args.model}")
     else:
         print(f"Single painting appraisal using {max_images_msg}")
+        print(f"Model: {args.model}")
     
     # Initialize the appraiser
-    appraiser = PaintingAppraiser(api_key, active_auctions_only, args.max_images)
+    appraiser = PaintingAppraiser(api_key, active_auctions_only, args.max_images, args.model)
     
     try:
         # Run appraisal (single URL or batch)
         if args.url:
             results = appraiser.appraise_single_url(args.url)
+            print(f"\nSingle URL appraisal completed")
         else:
             results = appraiser.run_appraisal(args.max_pages, args.delay, args.appraisals_file)
+            print(f"\nResults saved to {args.appraisals_file}")
     except KeyboardInterrupt:
         print("\nProcess interrupted by user")
     except Exception as e:
         print(f"Unexpected error: {e}")
         sys.exit(1)
+    finally:
+        # Always show cost summary at the end
+        appraiser.print_cost_summary()
 
 
 if __name__ == "__main__":

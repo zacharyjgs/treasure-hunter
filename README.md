@@ -1,25 +1,26 @@
-# Painting Appraiser for ShopGoodwill.com
+# Treasure Hunter
 
-A Python script that automatically appraises paintings from shopgoodwill.com using OpenAI's Responses API with web search capabilities and identifies potentially valuable pieces above a specified threshold.
+A Python script that automatically appraises paintings from shopgoodwill.com using OpenAI's advanced reasoning models with web search capabilities and identifies potentially valuable pieces.
 
 ## Quick Start
 
 1. **Install dependencies**: `pip install -r requirements.txt`
 2. **Get OpenAI API key**: Visit [platform.openai.com](https://platform.openai.com/)
 3. **Set environment variable**: `export OPENAI_API_KEY="your-key-here"`
-4. **Run the appraiser**: `python appraise.py --threshold 500`
+4. **Run the appraiser**: `python appraise.py --url "https://shopgoodwill.com/item/123456"`
 
-That's it! The script will find paintings estimated above $500 and output their URLs.
+That's it! The script will analyze the painting and provide a detailed appraisal.
 
 ## Features
 
-- **Automated Scraping**: Scrapes painting listings from ShopGoodwill.com
-- **AI-Powered Appraisal**: Uses OpenAI's Responses API with built-in web search to research artists and market data
+- **Multi-Image Analysis**: Uses all available images from listings for comprehensive visual analysis
+- **Advanced AI Models**: Supports OpenAI's latest reasoning models (o3, o4-mini, gpt-4.1, etc.)
 - **Real-Time Research**: Automatically searches for artist biographies, recent auction results, and market trends
-- **Authentication Analysis**: Cross-references known works and signatures for authenticity assessment
-- **Intelligent Filtering**: Only returns paintings estimated above your value threshold
-- **Comprehensive Analysis**: Considers artistic quality, technique, condition, and market demand
-- **Detailed Output**: Saves results with reasoning, confidence levels, research summaries, and authentication notes
+- **Comprehensive Analysis**: Examines style, condition, signature, frame construction, and back markings
+- **Detailed Output**: Provides artist info, dimensions, medium, time period, subject matter, quality assessment
+- **Cost Tracking**: Real-time API usage monitoring with detailed cost breakdown
+- **Flexible Processing**: Single URL analysis or batch processing of multiple pages
+- **CSV Export**: Saves results with full appraisal data for analysis
 
 ## Installation
 
@@ -48,190 +49,192 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Basic Usage
+### Single Painting Analysis
 
 ```bash
-python appraise.py --threshold 500
+# Analyze a specific painting
+python appraise.py --url "https://shopgoodwill.com/item/237853018"
+
+# Use a specific model
+python appraise.py --url "https://shopgoodwill.com/item/237853018" --model gpt-4o
+
+# Limit number of images
+python appraise.py --url "https://shopgoodwill.com/item/237853018" --max-images 3
 ```
 
-### Advanced Usage
+### Batch Processing
 
 ```bash
-python appraise.py \
-  --threshold 1000 \
-  --max-pages 5 \
-  --delay 2.0 \
-  --paintings-file my_valuable_paintings.json
-```
+# Process multiple pages of paintings
+python appraise.py --max-pages 5
 
-### Active Auction Filtering
+# Include ended auctions
+python appraise.py --max-pages 3 --include-ended-auctions
 
-By default, the script only processes paintings with active auctions to avoid wasting time on already-ended auctions:
-
-```bash
-# Only process active auctions (default behavior)
-python appraise.py --threshold 500
-
-# Process all auctions including ended ones
-python appraise.py --threshold 500 --include-ended-auctions
+# Custom delay and file output
+python appraise.py --max-pages 2 --delay 1.5 --appraisals-file my_appraisals.csv
 ```
 
 ### Command Line Arguments
 
-- `--threshold`: Minimum estimated value in USD (default: 500)
+- `--url`: Analyze a specific painting URL instead of batch processing
+- `--model`: OpenAI model to use (default: o4-mini)
+- `--max-images`: Maximum number of images to send to AI (default: all available)
 - `--max-pages`: Maximum number of pages to process (default: 1000)
-- `--delay`: Delay between API calls in seconds (default: 1.0)
-- `--paintings-file`: Paintings data file for storing results and progress (default: appraisals.json)
-- `--include-ended-auctions`: Include ended auctions as well
-- `--no-include-ended-auctions`: Only process paintings with active auctions (default)
+- `--delay`: Delay between API calls in seconds (default: 0.0)
+- `--appraisals-file`: CSV file for storing results (default: appraisals.csv)
+- `--include-ended-auctions`: Include ended auctions in batch processing
+- `--no-include-ended-auctions`: Only process active auctions (default)
+
+### Available Models
+
+- `o4-mini` (default) - Latest reasoning model, great balance of cost and performance
+- `o3` - Advanced reasoning for complex analysis
+- `gpt-4o` - Multimodal capabilities
+- `gpt-4o-mini` - Cost-effective option
+- `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano` - Latest GPT models
 
 ## Example Output
 
-The script will display progress as it runs:
+### Single Painting Analysis
 
 ```
-Starting painting appraisal with threshold: $500.00
-Processing up to 3 pages
+Single painting appraisal using all available images
+Model: o4-mini
 
---- Processing page 1 ---
-Found 40 paintings on page 1
+📝 TITLE: Beautiful Landscape Painting
+🔗 LISTING URL: https://shopgoodwill.com/item/237853018
+🏷️ CURRENT PRICE: $25.00
+🖼️ IMAGES (3): [List of image URLs]
 
-Processing painting 1/40: Women in a Gallery by Richard Frank James
-✅ VALUABLE: $1,200.00 - Women in a Gallery by Richard Frank James (20th Cent.)-Oil on Canvas-Signed
-   URL: https://shopgoodwill.com/item/237684201
+🎨 ARTIST: John Smith (b. 1940)
+📏 DIMENSIONS: 16" x 20"
+🖌️ MEDIUM: Oil on canvas
+STYLE: Impressionist
+TIME PERIOD: Late 20th century
+SUBJECT MATTER: Landscape
+CONDITION: Good with minor frame wear
+QUALITY: Professional level
+SIGNATURE: Signed lower right "J. Smith"
+BACK MARKINGS: Gallery label from Smith Gallery, NYC
+FRAME CONSTRUCTION: Traditional wood frame with canvas stretchers
 
-Processing painting 2/40: Victorian Musician Family in Park
-   Estimated value: $300.00 (below threshold)
+💎 VALUATION:
+   Range: $150.00 - $300.00
+   Best Estimate: $225.00
 
-...
+💰 API USAGE: $0.0234 | 1,500 input + 800 output + 400 reasoning = 2,700 tokens
+```
 
-===============================================================
-SUMMARY: Found 3 paintings above $500.00
-===============================================================
+### Cost Summary
 
-1. Women in a Gallery by Richard Frank James (20th Cent.)-Oil on Canvas-Signed
-   Artist: Richard Frank James (20th Cent.)
-   Current Price: $126.00
-   Estimated Value: $1,200.00
-   Confidence: medium
-   URL: https://shopgoodwill.com/item/237684201
-   Reasoning: This oil painting demonstrates solid academic technique with good composition...
-   Research: Found recent auction results for Richard Frank James showing strong market demand...
-   Authentication: Signature appears consistent with known examples from this period...
-
-===============================================================
-VALUABLE PAINTING URLS:
-===============================================================
-https://shopgoodwill.com/item/237684201
-https://shopgoodwill.com/item/237684529
-https://shopgoodwill.com/item/237465054
+```
+💰 FINAL COST SUMMARY:
+==================================================
+Total Requests: 3
+Input Tokens: 4,500
+  └─ Cached: 0
+  └─ Fresh: 4,500
+Output Tokens: 2,400
+Reasoning Tokens: 1,200
+Total Tokens: 8,100
+Estimated Input Cost: $0.0495
+Estimated Output Cost: $0.1056
+  └─ Includes 1,200 reasoning tokens
+Estimated Total Cost: $0.1551
+Model: o4-mini
 ```
 
 ## Output Files
 
-The script generates a JSON file (default: `valuable_paintings.json`) containing detailed appraisal information:
+The script generates a CSV file containing detailed appraisal information with the following columns:
 
-```json
-[
-  {
-    "estimated_value_min": 800,
-    "estimated_value_max": 1500,
-    "estimated_value_best": 1200,
-    "confidence_level": "medium",
-    "reasoning": "This oil painting demonstrates solid academic technique...",
-    "risk_factors": "Unknown provenance, condition shows some wear...",
-    "market_category": "20th Century American",
-    "research_summary": "Web search revealed recent auction sales of $800-1400 for similar works...",
-    "authentication_notes": "Signature matches documented examples, painting style consistent with known works",
-    "painting_info": {
-      "url": "https://shopgoodwill.com/item/237684201",
-      "title": "Women in a Gallery by Richard Frank James",
-      "image_url": "https://shopgoodwill.com/images/...",
-      "current_price": "$126.00",
-      "artist": "Richard Frank James (20th Cent.)",
-      "medium": "Oil on Canvas",
-      "dimensions": "approx. 48\" L x 2.5\" W x 38.5\" H"
-    }
-  }
-]
-```
+- Basic info: URL, title, current price, estimated values, confidence
+- Artist details: Artist name, style, time period
+- Physical details: Medium, dimensions, condition, quality
+- Analysis: Subject matter, signature details, back markings, frame construction
+- Research: Reasoning, risk factors, market category, web search summary
+- Technical: All available image URLs, API data
 
 ## How It Works
 
-1. **Scraping**: The script visits ShopGoodwill.com's painting category and extracts links to individual paintings
-2. **Detail Extraction**: For each painting, it visits the detail page to get high-resolution images and metadata
-3. **AI Appraisal**: Sends the image and metadata to OpenAI's Responses API with web search enabled
-4. **Real-Time Research**: The AI searches the web for artist information, recent sales, and authentication data
-5. **Analysis**: Combines visual analysis with market research for comprehensive appraisal
-6. **Filtering**: Only keeps paintings with estimated values above your threshold
-7. **Output**: Saves detailed results with research summaries and displays a summary
+1. **Image Extraction**: Scrapes all available images from the listing (not just the main image)
+2. **Multi-Image Analysis**: Sends up to your specified limit of images to the AI for comprehensive analysis
+3. **AI Appraisal**: Uses advanced reasoning models to analyze artistic quality, style, and market value
+4. **Real-Time Research**: Built-in web search finds artist information, recent sales, and market data
+5. **Comprehensive Output**: Provides detailed analysis including frame construction, signature details, and back markings
+6. **Cost Tracking**: Monitors API usage with real-time cost calculation including reasoning tokens
 
 ## Important Notes
 
-### Rate Limiting
-- The script includes built-in delays to respect website and API limits
-- Increase `--delay` if you encounter rate limiting issues
-- OpenAI API calls cost money - each appraisal with GPT-4o + web search costs approximately $0.03-0.07
+### Cost Management
+
+- **Real-time tracking**: See costs for each request and session totals
+- **Model selection**: Choose appropriate model for your budget (o4-mini is most cost-effective)
+- **Image limits**: Use `--max-images` to control costs for listings with many images
+- **Reasoning tokens**: Advanced models generate reasoning tokens (included in output token costs)
+
+### Model Pricing (per 1M tokens)
+
+| Model | Input | Output | Cached |
+|-------|-------|---------|---------|
+| o4-mini | $1.10 | $4.40 | $0.275 |
+| gpt-4o | $2.50 | $10.00 | $1.25 |
+| gpt-4o-mini | $0.15 | $0.60 | $0.075 |
+| gpt-4.1 | $2.00 | $8.00 | $0.50 |
 
 ### Accuracy Disclaimer
-- AI appraisals are estimates based on visual analysis combined with web research
-- While the tool searches for market data and artist information, it cannot verify authenticity
-- Actual values depend on many factors including provenance, condition, and market conditions
-- Always consult professional appraisers for important decisions
-- Use this tool as a screening mechanism, not as definitive valuation
 
-### Legal Considerations
-- Respect ShopGoodwill.com's terms of service
-- Don't overload their servers with too many rapid requests
-- This tool is for personal research purposes
+- AI appraisals are estimates based on visual analysis combined with web research
+- The tool provides comprehensive analysis but cannot verify authenticity
+- Actual values depend on provenance, condition, and current market conditions
+- Always consult professional appraisers for important decisions
+- Use this tool as a sophisticated screening mechanism
+
+### Enhanced Analysis Features
+
+- **Frame Analysis**: Examines frame construction, stretcher bars, and joints for period indicators
+- **Back Markings**: Looks for auction house labels, gallery stickers, and exhibition tags
+- **Signature Study**: Detailed analysis of signatures, monograms, and artist stamps
+- **Multi-Image Context**: Uses all available images for more accurate condition and authenticity assessment
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **"OPENAI_API_KEY environment variable not set"**:
-   - Make sure you've set the environment variable: `export OPENAI_API_KEY="your-key"`
-   - Check the key is correct (should start with "sk-")
+   - Set the environment variable: `export OPENAI_API_KEY="your-key"`
+   - Verify the key format (should start with "sk-")
 
-2. **"No paintings found"**:
-   - Check your internet connection
-   - The website structure may have changed
-   - Try reducing the number of pages
+2. **High API costs**:
+   - Use `--model gpt-4o-mini` for cheaper analysis
+   - Limit images with `--max-images 2`
+   - Monitor costs with built-in tracking
 
-3. **OpenAI API Errors**:
-   - Verify your API key is correct
-   - Check you have sufficient API credits
-   - Increase the delay between requests
-
-4. **Image Loading Errors**:
-   - Some painting images may not load properly
-   - The script will skip these and continue
-
-### Getting Help
-
-If you encounter issues:
-1. Check that your OPENAI_API_KEY environment variable is set correctly
-2. Check the error messages for specific details
-3. Try running with fewer pages first (`--max-pages 1`)
-4. Increase the delay between requests (`--delay 3.0`)
+3. **Model errors**:
+   - Verify your API key has access to the specified model
+   - Try a different model if one is unavailable
+   - Check OpenAI service status
 
 ## Example Use Cases
 
-- **Collectors**: Screen for undervalued pieces before bidding
-- **Dealers**: Identify potential inventory opportunities
-- **Researchers**: Analyze pricing trends in online art markets
-- **Hobbyists**: Learn about art valuation and market dynamics
+- **Art Collectors**: Comprehensive analysis before bidding with multiple image examination
+- **Dealers**: Professional-level screening with detailed condition and authenticity notes
+- **Researchers**: Market analysis with cost tracking for budget management
+- **Appraisers**: AI-assisted evaluation with detailed technical analysis
 
-## Cost Estimation
+## Recent Improvements
 
-- OpenAI API costs: ~$0.03-0.07 per painting analyzed (including web search)
-- Processing 100 paintings: ~$3-7 in API costs
-- Processing 1000 paintings: ~$30-70 in API costs
-- Web search adds precision but increases cost - the enhanced accuracy is usually worth it
+- **Multi-image analysis**: Now uses all available images instead of just the main image
+- **Advanced models**: Support for latest OpenAI reasoning models (o3, o4-mini)
+- **Cost tracking**: Real-time API usage and cost monitoring
+- **Enhanced analysis**: Frame construction, back markings, and signature analysis
+- **Better output**: Structured display with comprehensive details
+- **Flexible processing**: Single URL or batch processing modes
 
 ## Contributing
 
-Feel free to submit improvements, bug fixes, or feature requests!
+Feel free to submit improvements, bug fixes, or feature requests! The codebase is actively maintained and enhanced.
 
 ## License
 
