@@ -32,7 +32,8 @@ class PaintingInfo(BaseModel):
     """Information about a painting listing."""
     url: str
     title: str
-    image_url: Optional[str] = None
+    image_url: Optional[str] = None  # Primary image URL for backward compatibility
+    image_urls: List[str] = []  # All available image URLs
     current_price: str = "Unknown"
     description: str = ""
     item_id: Optional[str] = None
@@ -331,21 +332,33 @@ class PaintingAppraiser:
             if data.get('currentPrice'):
                 current_price = f"${data['currentPrice']:.2f}"
             
-            # Get main image URL from imageUrlString
+            # Get all image URLs from imageUrlString
             image_url = None
+            image_urls = []
             image_url_string = data.get('imageUrlString', '')
             if image_url_string:
-                # Split by semicolon and take the first image
+                # Split by semicolon to get all image paths
                 image_paths = image_url_string.split(';')
-                if image_paths and image_paths[0]:
-                    image_path = image_paths[0].replace('\\', '/')
-                    image_server = data.get('imageServer', 'https://shopgoodwillimages.azureedge.net/production/')
-                    image_url = f"{image_server}{image_path}"
+                image_server = data.get('imageServer', 'https://shopgoodwillimages.azureedge.net/production/')
+                
+                for i, image_path in enumerate(image_paths):
+                    if image_path.strip():
+                        clean_path = image_path.replace('\\', '/').strip()
+                        full_image_url = f"{image_server}{clean_path}"
+                        
+                        # Validate that this is a proper product image
+                        if self._is_valid_product_image(full_image_url):
+                            image_urls.append(full_image_url)
+                            
+                            # Set the first valid image as the primary image for backward compatibility
+                            if image_url is None:
+                                image_url = full_image_url
             
             return PaintingInfo(
                 url=painting_url,
                 title=title,
                 image_url=image_url,
+                image_urls=image_urls,
                 current_price=current_price,
                 description=description,
                 item_id=item_id,
@@ -361,25 +374,27 @@ class PaintingAppraiser:
         Use OpenAI GPT-4o multimodal API to appraise a painting with enhanced research-style prompts that encourage thorough analysis.
         
         Args:
-            painting_info: PaintingInfo object with painting information including image_url
+            painting_info: PaintingInfo object with painting information including image_urls
             
         Returns:
             Appraisal object with appraisal results or None if failed
         """
-        if not painting_info.image_url:
-            print(f"No image URL for painting: {painting_info.title}")
-            return None
+        # Use all available images, fallback to primary image if image_urls is empty
+        available_images = painting_info.image_urls if painting_info.image_urls else ([painting_info.image_url] if painting_info.image_url else [])
         
-        # Use the image URL directly since we now find proper JPEG images
-        image_url = painting_info.image_url
+        if not available_images:
+            print(f"No image URLs for painting: {painting_info.title}")
+            return None
         
         try:
             # Construct the prompt for appraisal with web search capabilities
             prompt = f"""
             You are an expert art appraiser with access to real-time market data through web search. Analyze this painting and provide a comprehensive market appraisal.
 
+            NOTE: You will be provided with {len(available_images)} image(s) of this artwork. Please examine all images carefully as they may show different angles, details, signatures, or conditions that are important for your assessment.
+
             STEP 1 - BASIC IDENTIFICATION (Complete this first):
-            Examine the image carefully and determine:
+            Examine all provided images carefully and determine:
             1. Artist name - Look for signatures, monograms, or stamps in the image; also check if artist is mentioned in title/description
             2. Medium/materials used - Identify if it's oil on canvas, watercolor, acrylic, pastel, print, etc.
             3. Dimensions/size - Note the artwork size if visible or mentioned in the description
@@ -440,11 +455,21 @@ class PaintingAppraiser:
             - Description: {painting_info.description[:1000]}...
             """
             
-            # Debug: Print the image URL being sent to OpenAI
+            # Debug: Print the image URLs being sent to OpenAI
             print(f"📝 TITLE: {painting_info.title}")
             print(f"🔗 LISTING URL: {painting_info.url}")
             print(f"💵 CURRENT PRICE: {painting_info.current_price}")
-            print(f"🖼️ IMAGE URL: {image_url}")
+            print(f"🖼️ IMAGES ({len(available_images)}): {available_images}")
+            
+            # Build content array with text prompt and all available images
+            content = [{"type": "input_text", "text": prompt}]
+            
+            # Add all available images to the content
+            for i, image_url in enumerate(available_images):
+                content.append({
+                    "type": "input_image", 
+                    "image_url": image_url
+                })
             
             # Use Responses API with web search and structured outputs
             response = self.client.responses.parse(
@@ -452,13 +477,7 @@ class PaintingAppraiser:
                 input=[
                     {
                         "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": prompt},
-                            {
-                                "type": "input_image", 
-                                "image_url": image_url
-                            }
-                        ]
+                        "content": content
                     }
                 ],
                 tools=[
@@ -514,10 +533,15 @@ class PaintingAppraiser:
             
             for _, row in df.iterrows():
                 # Create PaintingInfo object
+                # Parse image_urls from semicolon-separated string if available
+                image_urls_str = str(row.get('image_urls', ''))
+                image_urls = [url.strip() for url in image_urls_str.split(';') if url.strip()] if image_urls_str else []
+                
                 painting_info = PaintingInfo(
                     url=str(row['url']),
                     title=str(row['title']),
                     image_url=str(row['image_url']),
+                    image_urls=image_urls,
                     current_price=str(row['current_price']),
                     description=str(row['description'])
                 )
@@ -593,6 +617,7 @@ class PaintingAppraiser:
                     'current_price': appraisal.painting_info.current_price,
                     'url': appraisal.painting_info.url,
                     'image_url': appraisal.painting_info.image_url or '',
+                    'image_urls': ';'.join(appraisal.painting_info.image_urls) if appraisal.painting_info.image_urls else '',
                     'description': appraisal.painting_info.description
                 }
                 rows.append(row)
@@ -606,7 +631,7 @@ class PaintingAppraiser:
             column_order = [
                 'estimated_value_best', 'estimated_value_min', 'estimated_value_max',
                 'confidence_level', 'market_category', 
-                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'current_price', 'url', 'image_url',
+                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'current_price', 'url', 'image_url', 'image_urls',
                 'reasoning', 'risk_factors', 'web_search_summary', 'recent_sales_data',
                 'artist_market_status', 'authentication_notes', 'comparable_works', 'description'
             ]
@@ -842,9 +867,7 @@ def main():
         sys.exit(1)
     
     auction_filter_msg = "active auctions only" if active_auctions_only else "all auctions (including ended)"
-    if args.url:
-        print(f"Starting single painting appraisal")
-    else:
+    if not args.url:
         print(f"Starting painting appraisal ({auction_filter_msg})")
         print(f"Processing up to {args.max_pages} pages")
     
@@ -855,10 +878,8 @@ def main():
         # Run appraisal (single URL or batch)
         if args.url:
             results = appraiser.appraise_single_url(args.url)
-            print(f"\nSingle URL appraisal completed (not saved to file)")
         else:
             results = appraiser.run_appraisal(args.max_pages, args.delay, args.appraisals_file)
-            print(f"\nResults saved to {args.appraisals_file}")    
     except KeyboardInterrupt:
         print("\nProcess interrupted by user")
     except Exception as e:
