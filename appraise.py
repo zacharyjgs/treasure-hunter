@@ -14,19 +14,15 @@ Requirements:
 """
 
 import argparse
-import json
 import os
 import re
 import sys
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urljoin, urlparse, quote
 
-import openai
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 from openai import OpenAI
 
 from pydantic import BaseModel
@@ -103,10 +99,6 @@ class PaintingAppraiser:
         # If no specific good patterns but also no bad patterns, it might be okay
         # This is for cases where the image URL doesn't have clear indicators
         return True
-
-
-
-
         
     def get_paintings_list(self, page: int = 1) -> List[Dict]:
         """
@@ -228,98 +220,6 @@ class PaintingAppraiser:
             print(f"Error fetching paintings list from API: {e}")
             return []
 
-    def is_auction_active(self, painting_url: str, api_data: Dict = None) -> bool:
-        """
-        Check if the auction for a painting is still active using API data.
-        
-        Args:
-            painting_url: URL to the painting's detail page
-            api_data: API data from search or item detail (optional)
-            
-        Returns:
-            True if auction is active, False otherwise
-        """
-        try:
-            # If we don't have API data, get it
-            if not api_data:
-                # Extract item ID from URL
-                match = re.search(r'/item/(\d+)', painting_url)
-                if not match:
-                    print(f"Could not extract item ID from URL: {painting_url}")
-                    return False
-                item_id = match.group(1)
-                
-                # Get item details from API
-                details = self.get_painting_details(painting_url, item_id)
-                if not details or not details.get('api_data'):
-                    print(f"Could not get API data for: {painting_url}")
-                    return False
-                api_data = details['api_data']
-            
-            # Check auction status from API data
-            # First check the remainingTime field - most reliable indicator
-            remaining_time = api_data.get('remainingTime', '').lower()
-            if 'ended' in remaining_time or 'closed' in remaining_time or 'sold' in remaining_time:
-                print(f"⏰ Auction ended (remainingTime: {remaining_time}) for: {painting_url}")
-                return False
-            
-            # Check end date using correct field name
-            end_date_str = api_data.get('endTime') or api_data.get('auctionEndTime') or api_data.get('endDate')
-            if end_date_str:
-                try:
-                    # Parse the end date (format may vary)
-                    from datetime import datetime
-                    import dateutil.parser
-                    end_date = dateutil.parser.parse(end_date_str)
-                    now = datetime.now(end_date.tzinfo) if end_date.tzinfo else datetime.now()
-                    
-                    if end_date <= now:
-                        print(f"⏰ Auction ended (past end date: {end_date_str}) for: {painting_url}")
-                        return False
-                except Exception as date_error:
-                    print(f"⚠️ Could not parse end date '{end_date_str}': {date_error}")
-            
-            # Check for explicit status indicators
-            auction_status = api_data.get('status', '').lower()
-            item_status = api_data.get('itemStatus', '').lower()
-            
-            inactive_statuses = ['ended', 'closed', 'sold', 'completed', 'finished', 'inactive']
-            for status in inactive_statuses:
-                if status in auction_status or status in item_status:
-                    print(f"⏰ Auction ended (status: {auction_status}/{item_status}) for: {painting_url}")
-                    return False
-            
-            # Check for active status indicators in remainingTime
-            # Look for time patterns like "20h 20m", "1d 5h", "30m", etc.
-            if remaining_time and any(time_indicator in remaining_time for time_indicator in ['h ', 'm ', 'd ', 's ', 'day', 'hour', 'minute', 'second']):
-                print(f"✅ Active auction found (remainingTime: {remaining_time}): {painting_url}")
-                return True
-            
-            # Check for active status indicators
-            active_statuses = ['active', 'open', 'bidding', 'live', 'ongoing']
-            for status in active_statuses:
-                if status in auction_status or status in item_status:
-                    print(f"✅ Active auction found (status: {auction_status}/{item_status}): {painting_url}")
-                    return True
-            
-            # Check if we can place bids (API might have this info)
-            can_bid = api_data.get('canBid', api_data.get('biddingAllowed', True))
-            if can_bid is False:
-                print(f"⏰ Bidding not allowed for: {painting_url}")
-                return False
-            
-            # If filtering for active auctions only and we can't determine status, be conservative
-            if self.active_auctions_only:
-                print(f"❓ Cannot determine auction status, assuming inactive (filtering active only): {painting_url}")
-                return False
-            else:
-                print(f"✅ Cannot determine auction status, assuming active (not filtering): {painting_url}")
-                return True
-            
-        except Exception as e:
-            print(f"Error checking auction status for {painting_url}: {e}")
-            return False
-
     def get_painting_details(self, painting_url: str, item_id: str = None) -> Optional[Dict]:
         """
         Get detailed information about a specific painting using the API endpoint.
@@ -394,45 +294,11 @@ class PaintingAppraiser:
                     image_server = data.get('imageServer', 'https://shopgoodwillimages.azureedge.net/production/')
                     image_url = f"{image_server}{image_path}"
             
-            # Extract artist, medium, dimensions from description
-            artist = "Unknown Artist"
-            medium = "Unknown Medium" 
-            dimensions = ""
-            
-            # Try to parse structured description for artwork info
-            if description:
-                # Look for common patterns in the description
-                import re
-                
-                # Extract Type of Art (medium)
-                type_match = re.search(r'Type of Art:\s*(.+?)(?:\n|$)', description, re.IGNORECASE)
-                if type_match:
-                    medium = type_match.group(1).strip()
-                
-                # Extract Size
-                size_match = re.search(r'Size \(in inches\):\s*(.+?)(?:\n|$)', description, re.IGNORECASE)
-                if size_match:
-                    dimensions = size_match.group(1).strip()
-            
-            # Also check description for artist/medium info if not found in metadata
-            if artist == "Unknown Artist" and description:
-                artist_match = re.search(r'artist[:\s]+([^\n.]+)', description, re.IGNORECASE)
-                if artist_match:
-                    artist = artist_match.group(1).strip()
-            
-            if medium == "Unknown Medium" and description:
-                medium_match = re.search(r'media[:\s]+([^\n.]+)', description, re.IGNORECASE)
-                if medium_match:
-                    medium = medium_match.group(1).strip()
-            
             return {
                 'url': painting_url,
                 'title': title,
                 'image_url': image_url,
                 'current_price': current_price,
-                'artist': artist,
-                'medium': medium,
-                'dimensions': dimensions,
                 'description': description,
                 'api_data': data  # Store full API data for reference
             }
@@ -465,21 +331,19 @@ class PaintingAppraiser:
 
             Known Information:
             - Title: {painting_info.get('title', 'Unknown')}
-            - Artist: {painting_info.get('artist', 'Unknown')}
-            - Medium: {painting_info.get('medium', 'Unknown')}
-            - Dimensions: {painting_info.get('dimensions', 'Unknown')}
-            - Current asking price: {painting_info.get('current_price', 'Unknown')}
-            - Description: {painting_info.get('description', '')[:500]}...
+            - Description: {painting_info.get('description', '')[:1000]}...
 
             REQUIRED: Use web search to research the following before making your appraisal:
             
             1. Artist Market Research:
-               - Search for "{painting_info.get('artist', 'Unknown')} artist auction results 2023 2024"
+               - Search for the artist name if present in the title, description, or signature in the image, 
+                 appending "auction sold" to find auction results
                - Look for biography, career highlights, and market recognition
                - Find recent sales data and price trends
             
             2. Comparable Works:
-               - Search for "similar paintings {painting_info.get('artist', 'Unknown')} sold auction"
+               - Search for similar paintings based on title and description, appending "auction sold" to find 
+                 auction results
                - Look for works with similar style, medium, and size
                - Find current market trends for this type of art
             
@@ -493,12 +357,10 @@ class PaintingAppraiser:
             - Unknown artists typically sell for less and value depends more on size, quality, and decorative appeal
             - Only established artists with documented sales history should be valued highly
             - Be extremely conservative with valuations for unverified or unknown artists
-            
-            EXAMPLE: If you find an artist named "John Smith" but your web search reveals no auction records, no art galleries representing them, no museum collections, and no recent sales data, then value the painting as if by an unknown artist ($25-$200 range), NOT as if by an established artist ($1000+ range).
 
             After completing your web research, analyze the image and provide:
             1. Artistic quality and technique
-            2. Historical significance or style period  
+            2. Historical significance or style period
             3. Condition (based on what you can see)
             4. Market demand and recent sales data
             5. Artist recognition and career status
@@ -508,9 +370,8 @@ class PaintingAppraiser:
             """
             
             # Debug: Print the image URL being sent to OpenAI
-            print(f"🖼️  IMAGE URL: {image_url}")
+            print(f"🖼️ IMAGE URL: {image_url}")
             print(f"📝 TITLE: {painting_info.get('title', 'Unknown')}")
-            print(f"🎨 ARTIST: {painting_info.get('artist', 'Unknown')}")
             print(f"🔗 LISTING URL: {painting_info.get('url', 'Unknown')}")
             print("─" * 80)
             
@@ -796,8 +657,6 @@ class PaintingAppraiser:
         print(f"\n🎨 DETAILED APPRAISAL FINDINGS")
         print(f"{'='*60}")
         print(f"Title: {painting['title']}")
-        print(f"Artist: {painting['artist']}")
-        print(f"Medium: {painting['medium']}")
         print(f"Dimensions: {painting.get('dimensions', 'Unknown')}")
         print(f"Current Price: {painting['current_price']}")
         print(f"Listing URL: {painting['url']}")

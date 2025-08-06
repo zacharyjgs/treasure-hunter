@@ -4,4 +4,5 @@
 
 # Appraisal results and data files
 appraisals.json
+appraisals.csv
 *.json.backup
