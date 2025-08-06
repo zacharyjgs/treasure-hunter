@@ -785,6 +785,11 @@ class PaintingAppraiser:
         print(f"ARTIST: {appraisal.artist or 'Unknown'}")
         print(f"MEDIUM: {appraisal.medium or 'Unknown'}")
         print(f"DIMENSIONS: {appraisal.dimensions or 'Unknown'}")
+        print(f"STYLE: {appraisal.style or 'Unknown'}")
+        print(f"TIME PERIOD: {appraisal.time_period or 'Unknown'}")
+        print(f"SUBJECT MATTER: {appraisal.subject_matter or 'Unknown'}")
+        print(f"CONDITION: {appraisal.condition or 'Unknown'}")
+        print(f"QUALITY: {appraisal.quality or 'Unknown'}")
         
         print(f"\n💰 VALUATION:")
         print(f"   Range: ${appraisal.estimated_value_min:,.2f} - ${appraisal.estimated_value_max:,.2f}")
