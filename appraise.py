@@ -57,6 +57,11 @@ class Appraisal(BaseModel):
     description_summary: str
     medium: str
     dimensions: str
+    style: str
+    time_period: str
+    subject_matter: str
+    condition: str
+    quality: str
     painting_info: PaintingInfo
 
 
@@ -78,6 +83,11 @@ class AppraisalResponse(BaseModel):
     description_summary: str  # Brief summary of the artwork based on title and description
     medium: str  # Medium/materials used (oil on canvas, watercolor, acrylic, etc.)
     dimensions: str  # Size/dimensions of the artwork if available
+    style: str  # Artistic style (e.g., Impressionist, Abstract, Realist, etc.)
+    time_period: str  # Estimated time period or era when created
+    subject_matter: str  # What the artwork depicts (landscape, portrait, still life, etc.)
+    condition: str  # Overall condition assessment based on visible condition
+    quality: str  # Overall artistic quality assessment (e.g., Excellent, Good, Average, Poor)
 
 
 class PaintingAppraiser:
@@ -368,48 +378,66 @@ class PaintingAppraiser:
             prompt = f"""
             You are an expert art appraiser with access to real-time market data through web search. Analyze this painting and provide a comprehensive market appraisal.
 
-            Known Information:
-            - Title: {painting_info.title}
-            - Description: {painting_info.description[:1000]}...
+            STEP 1 - BASIC IDENTIFICATION (Complete this first):
+            Examine the image carefully and determine:
+            1. Artist name - Look for signatures, monograms, or stamps in the image; also check if artist is mentioned in title/description
+            2. Medium/materials used - Identify if it's oil on canvas, watercolor, acrylic, pastel, print, etc.
+            3. Dimensions/size - Note the artwork size if visible or mentioned in the description
+            4. Style and time period - Analyze the artistic style and estimate when it was created
+            5. Subject matter - Describe what the artwork depicts
+            6. Overall condition - Note any visible damage, wear, or restoration
+            7. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
 
-            REQUIRED: Use web search to research the following before making your appraisal:
+            STEP 2 - RESEARCH AND AUTHENTICATION (Only after Step 1 is complete):
+            Use web search to research the following:
             
             1. Artist Market Research:
-               - Search for the artist name if present in the title, description, or signature in the image, 
-                 appending "auction sold" to find auction results
+               - Search for the artist name (from Step 1) appending "auction sold" to find auction results
                - Look for biography, career highlights, and market recognition
                - Find recent sales data and price trends
             
             2. Comparable Works:
-               - Search for similar paintings based on title and description, appending "auction sold" to find 
-                 auction results
-               - Look for works with similar style, medium, and size
+               - Search for similar paintings by this artist or similar style/medium
+               - Look for works with similar subject matter, medium, and size
                - Find current market trends for this type of art
             
             3. Authentication Research:
                - Search for known works and signatures by this artist
                - Look for any authentication guides or red flags
                - Check museum collections or catalogs
+               - Verify if the signature style matches known examples
 
-            Guidelines on unknown artists:
-            - If NO market data, auction records, or recognition is found for the artist, treat as UNKNOWN ARTIST
-            - Unknown artists typically sell for less and value depends more on size, quality, and decorative appeal
-            - Only established artists with documented sales history should be valued highly
-            - Be extremely conservative with valuations for unverified or unknown artists
+            STEP 3 - FINAL ANALYSIS:
+            Synthesize findings from Steps 1 and 2 for comprehensive valuation:
 
-            After completing your web research, analyze the image and provide:
-            1. Artistic quality and technique
-            2. Historical significance or style period
-            3. Condition (based on what you can see)
-            4. Market demand and recent sales data
-            5. Artist recognition and career status
-            6. Authentication likelihood
-            7. Artist name extracted from title, description, or visible signature
-            8. Brief description summary of the artwork
-            9. Medium/materials used (oil on canvas, watercolor, acrylic, etc.)
-            10. Dimensions/size of the artwork if visible or mentioned
+            1. ARTIST CATEGORIZATION & MARKET POSITIONING:
+               - ESTABLISHED ARTIST: Has documented sales history, museum recognition, or auction records
+               - UNKNOWN ARTIST: No market data, auction records, or recognition found - be extremely conservative (typically $10-$300 range)
+               - For unknown artists: value based primarily on size, quality, and decorative appeal
+               - Cross-reference technical quality with artist's known skill level and career status
 
-            Provide your response using the structured output format with comprehensive analysis including web research findings.
+            2. AUTHENTICATION & CONDITION IMPACT:
+               - Verify signature style matches research findings; note any red flags
+               - Assess condition impact on value and factor restoration costs
+               - Consider attribution certainty (signed vs. attributed vs. uncertain)
+
+            3. MARKET VALUATION WITH BIAS ADJUSTMENT:
+               - Compare to recent auction sales and market comparables
+               - IMPORTANT: Online sales platforms often show inflated "sold" prices due to selection bias, 
+                 marketing tactics, and non-representative samples
+               - Factor in current market trends for style/period/subject matter
+               - Provide conservative estimates that account for quick sale scenarios
+
+            4. RISK FACTORS & FINAL JUSTIFICATION:
+               - Address attribution gaps, condition issues, and market volatility
+               - Explain valuation rationale based on all research findings
+               - Be especially conservative with unknown/unverified artists
+
+            Provide your response using the structured output format with comprehensive analysis including all web research findings.
+            
+            Known Information:
+            - Title: {painting_info.title}
+            - Description: {painting_info.description[:1000]}...
             """
             
             # Debug: Print the image URL being sent to OpenAI
@@ -462,6 +490,11 @@ class PaintingAppraiser:
                 description_summary=appraisal_response.description_summary,
                 medium=appraisal_response.medium,
                 dimensions=appraisal_response.dimensions,
+                style=appraisal_response.style,
+                time_period=appraisal_response.time_period,
+                subject_matter=appraisal_response.subject_matter,
+                condition=appraisal_response.condition,
+                quality=appraisal_response.quality,
                 painting_info=painting_info
             )
             
@@ -506,6 +539,11 @@ class PaintingAppraiser:
                     description_summary=str(row.get('description_summary', '')),
                     medium=str(row.get('medium', '')),
                     dimensions=str(row.get('dimensions', '')),
+                    style=str(row.get('style', '')),
+                    time_period=str(row.get('time_period', '')),
+                    subject_matter=str(row.get('subject_matter', '')),
+                    condition=str(row.get('condition', '')),
+                    quality=str(row.get('quality', '')),
                     painting_info=painting_info
                 )
                 appraisals.append(appraisal)
@@ -545,6 +583,11 @@ class PaintingAppraiser:
                     'description_summary': appraisal.description_summary,
                     'medium': appraisal.medium,
                     'dimensions': appraisal.dimensions,
+                    'style': appraisal.style,
+                    'time_period': appraisal.time_period,
+                    'subject_matter': appraisal.subject_matter,
+                    'condition': appraisal.condition,
+                    'quality': appraisal.quality,
                     'title': appraisal.painting_info.title,
                     'current_price': appraisal.painting_info.current_price,
                     'url': appraisal.painting_info.url,
@@ -562,7 +605,7 @@ class PaintingAppraiser:
             column_order = [
                 'estimated_value_best', 'estimated_value_min', 'estimated_value_max',
                 'confidence_level', 'market_category', 
-                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'current_price', 'url', 'image_url',
+                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'current_price', 'url', 'image_url',
                 'reasoning', 'risk_factors', 'web_search_summary', 'recent_sales_data',
                 'artist_market_status', 'authentication_notes', 'comparable_works', 'description'
             ]
