@@ -63,6 +63,8 @@ class Appraisal(BaseModel):
     subject_matter: str
     condition: str
     quality: str
+    signature_details: str
+    back_markings: str
     painting_info: PaintingInfo
 
 
@@ -89,6 +91,8 @@ class AppraisalResponse(BaseModel):
     subject_matter: str  # What the artwork depicts (landscape, portrait, still life, etc.)
     condition: str  # Overall condition assessment based on visible condition
     quality: str  # Overall artistic quality assessment (e.g., Excellent, Good, Average, Poor)
+    signature_details: str  # Description of signature, monogram, or stamp found on artwork
+    back_markings: str  # Auction house labels, gallery stickers, exhibition tags, or other back markings
 
 
 class PaintingAppraiser:
@@ -403,14 +407,15 @@ class PaintingAppraiser:
             STEP 1 - BASIC IDENTIFICATION (Complete this first):
             Examine all provided images carefully and determine:
             1. Artist name - Look for signatures, monograms, or stamps in the image; also check if artist is mentioned in title/description
-            2. Medium/materials used - Identify if it's oil on canvas, watercolor, acrylic, pastel, print, etc.
-            3. Dimensions/size - Note the artwork size if visible or mentioned in the description
-            4. Style and time period - Analyze the artistic style and estimate when it was created
-            5. Subject matter - Describe what the artwork depicts
-            6. Overall condition - Note any visible damage, wear, or restoration
-            7. Frame and construction details - Examine the frame, stretcher bars, and frame joints as these can indicate the artwork's age and period value
-            8. Back of painting examination - Look for auction house labels, gallery stickers, exhibition tags, or other markings that indicate provenance
-            9. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
+            2. Signature details - Describe any visible signatures, monograms, stamps, or artist marks found on the artwork
+            3. Medium/materials used - Identify if it's oil on canvas, watercolor, acrylic, pastel, print, etc.
+            4. Dimensions/size - Note the artwork size if visible or mentioned in the description
+            5. Style and time period - Analyze the artistic style and estimate when it was created
+            6. Subject matter - Describe what the artwork depicts
+            7. Overall condition - Note any visible damage, wear, or restoration
+            8. Frame and construction details - Examine the frame, stretcher bars, and frame joints as these can indicate the artwork's age and period value
+            9. Back markings - Look for auction house labels, gallery stickers, exhibition tags, or other markings that indicate provenance
+            10. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
 
             STEP 2 - RESEARCH AND AUTHENTICATION (Only after Step 1 is complete):
             Use web search to research the following:
@@ -525,6 +530,8 @@ class PaintingAppraiser:
                 subject_matter=appraisal_response.subject_matter,
                 condition=appraisal_response.condition,
                 quality=appraisal_response.quality,
+                signature_details=appraisal_response.signature_details,
+                back_markings=appraisal_response.back_markings,
                 painting_info=painting_info
             )
 
@@ -580,6 +587,8 @@ class PaintingAppraiser:
                     subject_matter=str(row.get('subject_matter', '')),
                     condition=str(row.get('condition', '')),
                     quality=str(row.get('quality', '')),
+                    signature_details=str(row.get('signature_details', '')),
+                    back_markings=str(row.get('back_markings', '')),
                     painting_info=painting_info
                 )
                 appraisals.append(appraisal)
@@ -624,6 +633,8 @@ class PaintingAppraiser:
                     'subject_matter': appraisal.subject_matter,
                     'condition': appraisal.condition,
                     'quality': appraisal.quality,
+                    'signature_details': appraisal.signature_details,
+                    'back_markings': appraisal.back_markings,
                     'title': appraisal.painting_info.title,
                     'current_price': appraisal.painting_info.current_price,
                     'url': appraisal.painting_info.url,
@@ -642,7 +653,7 @@ class PaintingAppraiser:
             column_order = [
                 'estimated_value_best', 'estimated_value_min', 'estimated_value_max',
                 'confidence_level', 'market_category', 
-                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'current_price', 'url', 'image_url', 'image_urls',
+                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'signature_details', 'back_markings', 'current_price', 'url', 'image_url', 'image_urls',
                 'reasoning', 'risk_factors', 'web_search_summary', 'recent_sales_data',
                 'artist_market_status', 'authentication_notes', 'comparable_works', 'description'
             ]
@@ -790,6 +801,8 @@ class PaintingAppraiser:
         print(f"SUBJECT MATTER: {appraisal.subject_matter or 'Unknown'}")
         print(f"CONDITION: {appraisal.condition or 'Unknown'}")
         print(f"QUALITY: {appraisal.quality or 'Unknown'}")
+        print(f"SIGNATURE: {appraisal.signature_details or 'Not specified'}")
+        print(f"BACK MARKINGS: {appraisal.back_markings or 'None noted'}")
         
         print(f"\n💰 VALUATION:")
         print(f"   Range: ${appraisal.estimated_value_min:,.2f} - ${appraisal.estimated_value_max:,.2f}")
