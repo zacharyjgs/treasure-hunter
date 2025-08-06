@@ -2,15 +2,15 @@
 """
 Painting Appraiser for ShopGoodwill.com
 
-This script scrapes paintings from shopgoodwill.com, uses OpenAI's Responses API with web search to appraise them,
-and outputs URLs of paintings estimated to be worth more than a given threshold.
+This script fetches paintings from shopgoodwill.com using their API, uses OpenAI's Responses API with web search to appraise them,
+and outputs URLs of paintings.
 
 Usage:
     export OPENAI_API_KEY="your-api-key-here"
-    python appraise.py --threshold 500
+    python appraise.py
 
 Requirements:
-    pip install requests beautifulsoup4 openai playwright
+    pip install requests beautifulsoup4 openai pillow python-dateutil
 """
 
 import argparse
@@ -19,14 +19,15 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
 
 import openai
 import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
-from playwright.sync_api import sync_playwright
+
 from pydantic import BaseModel
 
 
@@ -46,20 +47,17 @@ class ArtAppraisal(BaseModel):
 
 
 class PaintingAppraiser:
-    def __init__(self, openai_api_key: str, threshold: float = 500.0):
+    def __init__(self, openai_api_key: str, active_auctions_only: bool = True):
         """
         Initialize the painting appraiser.
         
         Args:
             openai_api_key: OpenAI API key
-            threshold: Minimum estimated value threshold in USD
+            active_auctions_only: Only process paintings with active auctions
         """
         self.client = OpenAI(api_key=openai_api_key)
-        self.threshold = threshold
+        self.active_auctions_only = active_auctions_only
         self.base_url = "https://shopgoodwill.com"
-        self.playwright = None
-        self.browser = None
-        self.page = None
 
     def _is_valid_product_image(self, image_url: str) -> bool:
         """
@@ -107,282 +105,324 @@ class PaintingAppraiser:
 
 
 
-    def start_browser(self):
-        """Start Playwright browser for scraping."""
-        if self.playwright is None:
-            self.playwright = sync_playwright().start()
-            self.browser = self.playwright.chromium.launch(headless=True)
-            self.page = self.browser.new_page()
-            self.page.set_viewport_size({"width": 1920, "height": 1080})
 
-    def stop_browser(self):
-        """Stop Playwright browser and clean up resources."""
-        if self.page:
-            self.page.close()
-            self.page = None
-        if self.browser:
-            self.browser.close()
-            self.browser = None
-        if self.playwright:
-            self.playwright.stop()
-            self.playwright = None
         
     def get_paintings_list(self, page: int = 1) -> List[Dict]:
         """
-        Scrape the paintings listing page to get basic info about all paintings using Playwright.
+        Get paintings listing using the API endpoint instead of web scraping.
         
         Args:
-            page: Page number to scrape
+            page: Page number to fetch
             
         Returns:
             List of painting dictionaries with basic info
         """
-        if not self.page:
-            self.start_browser()
-        
         try:
-            # Use the correct ShopGoodwill paintings URL with proper category filtering
-            url = f"{self.base_url}/categories/listing?p={page}&st=&sg=Keyword&c=71&s=&lp=0&hp=999999&sbn=&spo=false&snpo=true&socs=false&sd=false&sca=false&caed=8%2F5%2F2025&cadb=7&scs=false&sis=false&col=1&ps=40&desc=false&ss=0&UseBuyerPrefs=true&sus=false&cln=1&catIds=-1,15,71&pn=&wc=false&mci=false&hmt=false&layout=grid&ihp="
-            print(f"Navigating to: {url}")
+            # Generate current date + 30 days for auction end date filter
+            future_date = datetime.now() + timedelta(days=30)
+            # Format as M/D/YYYY
+            date_str = f"{future_date.month}/{future_date.day}/{future_date.year}"
             
-            self.page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            # API endpoint for search
+            api_url = "https://buyerapi.shopgoodwill.com/api/Search/ItemListing"
             
-            # Wait for dynamic content to load
-            try:
-                self.page.wait_for_selector('a[href*="/item/"]', timeout=10000)
-            except:
-                # If no items found, try alternative selectors
-                try:
-                    self.page.wait_for_selector('.item-title', timeout=5000)
-                except:
-                    print(f"No items found on page {page}")
-                    return []
+            # Headers based on the curl example
+            headers = {
+                'accept': 'application/json, text/plain, */*',
+                'accept-language': 'en-US,en;q=0.9',
+                'cache-control': 'no-cache',
+                'content-type': 'application/json',
+                'origin': 'https://shopgoodwill.com',
+                'pragma': 'no-cache',
+                'priority': 'u=1, i',
+                'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"macOS"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-site',
+                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+            }
             
+            # API payload - modified from the curl example for paintings (category 71)
+            payload = {
+                "isSize": False,
+                "isWeddingCatagory": "false",
+                "isMultipleCategoryIds": False,
+                "isFromHeaderMenuTab": False,
+                "layout": "",
+                "isFromHomePage": False,
+                "searchText": "",
+                "selectedGroup": "Keyword",
+                "selectedCategoryIds": "71",  # Paintings category
+                "selectedSellerIds": "",
+                "lowPrice": "0",
+                "highPrice": "999999",
+                "searchBuyNowOnly": "",
+                "searchPickupOnly": "false",
+                "searchNoPickupOnly": "true",  # Exclude pickup only items
+                "searchOneCentShippingOnly": "true" if self.active_auctions_only else "false",
+                "searchDescriptions": "false",
+                "searchClosedAuctions": "false" if self.active_auctions_only else "true",
+                "closedAuctionEndingDate": date_str,
+                "closedAuctionDaysBack": "7",
+                "searchCanadaShipping": "false",
+                "searchInternationalShippingOnly": "false",
+                "sortColumn": "1",
+                "page": str(page),
+                "pageSize": "40",
+                "sortDescending": "false",
+                "savedSearchId": 0,
+                "useBuyerPrefs": "true",
+                "searchUSOnlyShipping": "false",
+                "categoryLevelNo": "1",
+                "partNumber": "",
+                "catIds": "-1,15,71",
+                "categoryId": "71",
+                "categoryLevel": 2
+            }
+            
+            print(f"Fetching page {page} from API...")
+            print(f"Using auction end date filter: {date_str}")
+            
+            # Make the API request
+            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract items from the API response
             paintings = []
+            items = data.get('searchResults', {}).get('items', [])
             
-            # Find all item links using different possible selectors
-            selectors_to_try = [
-                'a[href*="/item/"]',
-                '.item-title a',
-                '.product-title a',
-                'a[href*="item"]'
-            ]
-            
-            item_links = []
-            for selector in selectors_to_try:
-                links = self.page.query_selector_all(selector)
-                if links:
-                    item_links = links
-                    print(f"Found {len(links)} links with selector: {selector}")
-                    break
-            
-            if not item_links:
-                print(f"No item links found on page {page}")
-                return []
-            
-            seen_items = set()
-            for link in item_links:
+            for item in items:
                 try:
-                    href = link.get_attribute('href')
-                    if not href or href in seen_items:
-                        continue
+                    item_id = str(item.get('itemId', ''))
+                    title = item.get('title', f'Painting {item_id}')
                     
-                    # Ensure full URL
-                    if href.startswith('/'):
-                        href = self.base_url + href
+                    # Build URL from item ID
+                    url = f"{self.base_url}/item/{item_id}"
                     
-                    # Extract item ID
-                    match = re.search(r'/item/(\d+)', href)
-                    if not match:
-                        continue
-                    
-                    item_id = match.group(1)
-                    seen_items.add(href)
-                    
-                    # Get title
-                    title = link.inner_text().strip() if link.inner_text() else f"Painting {item_id}"
-                    
-                    # Try to find price in the same container
-                    price_text = ""
-                    try:
-                        # Look for price in parent container
-                        parent = link.locator('xpath=..//..')
-                        price_element = parent.locator('text=/\\$[\\d,]+\\.\\d{2}/').first
-                        if price_element.is_visible():
-                            price_text = price_element.inner_text().strip()
-                    except:
-                        pass
+                    # Get current price
+                    current_price = ""
+                    if item.get('currentPrice'):
+                        current_price = f"${item['currentPrice']:.2f}"
                     
                     paintings.append({
                         'item_id': item_id,
-                        'url': href,
+                        'url': url,
                         'title': title,
-                        'current_price': price_text
+                        'current_price': current_price,
+                        'api_data': item  # Store full API data for later use
                     })
                     
                 except Exception as e:
-                    print(f"Error processing link: {e}")
+                    print(f"Error processing item: {e}")
                     continue
             
             print(f"Found {len(paintings)} paintings on page {page}")
             return paintings
             
         except Exception as e:
-            print(f"Error fetching paintings list: {e}")
+            print(f"Error fetching paintings list from API: {e}")
             return []
 
-    def get_painting_details(self, painting_url: str) -> Optional[Dict]:
+    def is_auction_active(self, painting_url: str, api_data: Dict = None) -> bool:
         """
-        Get detailed information about a specific painting using Playwright.
+        Check if the auction for a painting is still active using API data.
         
         Args:
             painting_url: URL to the painting's detail page
+            api_data: API data from search or item detail (optional)
+            
+        Returns:
+            True if auction is active, False otherwise
+        """
+        try:
+            # If we don't have API data, get it
+            if not api_data:
+                # Extract item ID from URL
+                match = re.search(r'/item/(\d+)', painting_url)
+                if not match:
+                    print(f"Could not extract item ID from URL: {painting_url}")
+                    return False
+                item_id = match.group(1)
+                
+                # Get item details from API
+                details = self.get_painting_details(painting_url, item_id)
+                if not details or not details.get('api_data'):
+                    print(f"Could not get API data for: {painting_url}")
+                    return False
+                api_data = details['api_data']
+            
+            # Check auction status from API data
+            # First check the remainingTime field - most reliable indicator
+            remaining_time = api_data.get('remainingTime', '').lower()
+            if 'ended' in remaining_time or 'closed' in remaining_time or 'sold' in remaining_time:
+                print(f"⏰ Auction ended (remainingTime: {remaining_time}) for: {painting_url}")
+                return False
+            
+            # Check end date using correct field name
+            end_date_str = api_data.get('endTime') or api_data.get('auctionEndTime') or api_data.get('endDate')
+            if end_date_str:
+                try:
+                    # Parse the end date (format may vary)
+                    from datetime import datetime
+                    import dateutil.parser
+                    end_date = dateutil.parser.parse(end_date_str)
+                    now = datetime.now(end_date.tzinfo) if end_date.tzinfo else datetime.now()
+                    
+                    if end_date <= now:
+                        print(f"⏰ Auction ended (past end date: {end_date_str}) for: {painting_url}")
+                        return False
+                except Exception as date_error:
+                    print(f"⚠️ Could not parse end date '{end_date_str}': {date_error}")
+            
+            # Check for explicit status indicators
+            auction_status = api_data.get('status', '').lower()
+            item_status = api_data.get('itemStatus', '').lower()
+            
+            inactive_statuses = ['ended', 'closed', 'sold', 'completed', 'finished', 'inactive']
+            for status in inactive_statuses:
+                if status in auction_status or status in item_status:
+                    print(f"⏰ Auction ended (status: {auction_status}/{item_status}) for: {painting_url}")
+                    return False
+            
+            # Check for active status indicators in remainingTime
+            # Look for time patterns like "20h 20m", "1d 5h", "30m", etc.
+            if remaining_time and any(time_indicator in remaining_time for time_indicator in ['h ', 'm ', 'd ', 's ', 'day', 'hour', 'minute', 'second']):
+                print(f"✅ Active auction found (remainingTime: {remaining_time}): {painting_url}")
+                return True
+            
+            # Check for active status indicators
+            active_statuses = ['active', 'open', 'bidding', 'live', 'ongoing']
+            for status in active_statuses:
+                if status in auction_status or status in item_status:
+                    print(f"✅ Active auction found (status: {auction_status}/{item_status}): {painting_url}")
+                    return True
+            
+            # Check if we can place bids (API might have this info)
+            can_bid = api_data.get('canBid', api_data.get('biddingAllowed', True))
+            if can_bid is False:
+                print(f"⏰ Bidding not allowed for: {painting_url}")
+                return False
+            
+            # If filtering for active auctions only and we can't determine status, be conservative
+            if self.active_auctions_only:
+                print(f"❓ Cannot determine auction status, assuming inactive (filtering active only): {painting_url}")
+                return False
+            else:
+                print(f"✅ Cannot determine auction status, assuming active (not filtering): {painting_url}")
+                return True
+            
+        except Exception as e:
+            print(f"Error checking auction status for {painting_url}: {e}")
+            return False
+
+    def get_painting_details(self, painting_url: str, item_id: str = None) -> Optional[Dict]:
+        """
+        Get detailed information about a specific painting using the API endpoint.
+        
+        Args:
+            painting_url: URL to the painting's detail page
+            item_id: Item ID (extracted from URL if not provided)
             
         Returns:
             Dictionary with detailed painting info or None if failed
         """
-        if not self.page:
-            self.start_browser()
-            
         try:
-            print(f"Fetching details from: {painting_url}")
-            self.page.goto(painting_url, wait_until="domcontentloaded", timeout=15000)
+            # Extract item ID from URL if not provided
+            if not item_id:
+                match = re.search(r'/item/(\d+)', painting_url)
+                if not match:
+                    print(f"Could not extract item ID from URL: {painting_url}")
+                    return None
+                item_id = match.group(1)
             
-            # Wait for page content to load - ShopGoodwill uses heavy JavaScript
-            self.page.wait_for_timeout(5000)
+            print(f"Fetching details for item {item_id} from API...")
             
-            # Try to wait for actual content to appear (not just "Please wait!")
-            try:
-                self.page.wait_for_selector('h1', timeout=10000)
-            except:
-                print(f"Content may not have fully loaded for {painting_url}")
-                # Continue anyway, but with a longer timeout
+            # API endpoint for item details
+            api_url = f"https://buyerapi.shopgoodwill.com/api/ItemDetail/GetItemDetailModelByItemId/{item_id}"
             
-            # Extract title first (needed for image matching)
-            title = "Unknown Title"
-            try:
-                title_element = self.page.query_selector('h1')
-                if title_element:
-                    title = title_element.inner_text().strip()
-                else:
-                    title = self.page.title()
-            except:
-                pass
+            # Headers based on the curl example
+            headers = {
+                'accept': 'application/json, text/plain, */*',
+                'accept-language': 'en-US,en;q=0.9',
+                'cache-control': 'no-cache',
+                'origin': 'https://shopgoodwill.com',
+                'pragma': 'no-cache',
+                'priority': 'u=1, i',
+                'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"macOS"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-site',
+                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+            }
             
-            # Extract main image URL - ShopGoodwill hides the main product image
-            image_url = None
+            # Make the API request
+            response = requests.get(api_url, headers=headers, timeout=30)
+            response.raise_for_status()
             
-            # Wait a bit more for images to load
-            self.page.wait_for_timeout(3000)
+            data = response.json()
             
-            # First, look for the hidden product image (often has sr-only class)
-            all_images = self.page.query_selector_all('img')
-            print(f"Found {len(all_images)} images on the page")
+            # Extract information from API response (data is at root level, not nested)
+            title = data.get('title', f'Painting {item_id}')
+            description = data.get('description', '').strip()
             
-            for img in all_images:
-                src = img.get_attribute('src')
-                alt = img.get_attribute('alt') or ''
-                class_name = img.get_attribute('class') or ''
-                
-                if src and self._is_valid_product_image(src):
-                    # Check if this looks like a product image
-                    # ShopGoodwill product images often have the item title in alt text
-                    title_words = title.lower().split()
-                    alt_words = alt.lower().split()
-                    
-                    # If alt text has significant overlap with title, it's likely the product image
-                    if len(title_words) > 3 and len(alt_words) > 3:
-                        common_words = set(title_words) & set(alt_words)
-                        if len(common_words) >= 3:  # At least 3 words in common
-                            image_url = src if src.startswith('http') else self.base_url + src
-                            break
-                    
-                    # Check for item-specific URL patterns
-                    if '/Items/' in src and any(pattern in src.lower() for pattern in ['jpg', 'jpeg', 'png']):
-                        image_url = src if src.startswith('http') else self.base_url + src
-                        break
+            # Clean up HTML description
+            if description:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(description, 'html.parser')
+                description = soup.get_text(separator=' ').strip()
             
-            # Fallback: try traditional selectors if nothing found
-            if not image_url:
-                image_selectors = [
-                    'img[src*="production"][src*="Items"]',  # ShopGoodwill item path
-                    'img[src*="/item/"]',  # Look for item-specific images
-                    '.product-image img',
-                    '.item-image img', 
-                    'img[src*="images"]:not([src*="logo"]):not([src*="icon"])',  # Images but not logos/icons
-                ]
-                
-                for selector in image_selectors:
-                    try:
-                        img_element = self.page.query_selector(selector)
-                        if img_element:
-                            src = img_element.get_attribute('src')
-                            if src and self._is_valid_product_image(src):
-                                image_url = src if src.startswith('http') else self.base_url + src
-                                break
-                    except:
-                        continue
-            
-            # Extract current price - try multiple approaches
+            # Get current price
             current_price = "Unknown"
-            price_selectors = [
-                'text=/Current Price.*\\$[\\d,]+\\.\\d{2}/',
-                'text=/\\$[\\d,]+\\.\\d{2}/',
-                '.price',
-                '.current-price'
-            ]
+            if data.get('currentPrice'):
+                current_price = f"${data['currentPrice']:.2f}"
             
-            for selector in price_selectors:
-                try:
-                    price_element = self.page.query_selector(selector)
-                    if price_element:
-                        price_text = price_element.inner_text()
-                        price_match = re.search(r'\\$[\\d,]+\\.\\d{2}', price_text)
-                        if price_match:
-                            current_price = price_match.group()
-                            break
-                except:
-                    continue
+            # Get main image URL from imageUrlString
+            image_url = None
+            image_url_string = data.get('imageUrlString', '')
+            if image_url_string:
+                # Split by semicolon and take the first image
+                image_paths = image_url_string.split(';')
+                if image_paths and image_paths[0]:
+                    image_path = image_paths[0].replace('\\', '/')
+                    image_server = data.get('imageServer', 'https://shopgoodwillimages.azureedge.net/production/')
+                    image_url = f"{image_server}{image_path}"
             
-            # Extract description
-            description = ""
-            desc_selectors = [
-                'text=/Item Description/',
-                '.description',
-                '.item-description'
-            ]
-            
-            for selector in desc_selectors:
-                try:
-                    desc_element = self.page.query_selector(selector)
-                    if desc_element:
-                        # Get the next element that contains the description
-                        parent = desc_element.locator('xpath=..')
-                        description = parent.inner_text().strip()
-                        break
-                except:
-                    continue
-            
-            # Extract artist, medium, dimensions from page text
-            page_text = self.page.inner_text('body')
-            
-            # Extract artist
+            # Extract artist, medium, dimensions from description
             artist = "Unknown Artist"
-            artist_match = re.search(r'Artist[:\\s]+([^\\n]+)', page_text, re.IGNORECASE)
-            if artist_match:
-                artist = artist_match.group(1).strip()
-            
-            # Extract medium
-            medium = "Unknown Medium"
-            medium_match = re.search(r'Media[:\\s]+([^\\n]+)', page_text, re.IGNORECASE)
-            if medium_match:
-                medium = medium_match.group(1).strip()
-            
-            # Extract dimensions
+            medium = "Unknown Medium" 
             dimensions = ""
-            dim_match = re.search(r'Frame Size[^\\n]*[:\\s]+([^\\n]+)', page_text, re.IGNORECASE)
-            if dim_match:
-                dimensions = dim_match.group(1).strip()
+            
+            # Try to parse structured description for artwork info
+            if description:
+                # Look for common patterns in the description
+                import re
+                
+                # Extract Type of Art (medium)
+                type_match = re.search(r'Type of Art:\s*(.+?)(?:\n|$)', description, re.IGNORECASE)
+                if type_match:
+                    medium = type_match.group(1).strip()
+                
+                # Extract Size
+                size_match = re.search(r'Size \(in inches\):\s*(.+?)(?:\n|$)', description, re.IGNORECASE)
+                if size_match:
+                    dimensions = size_match.group(1).strip()
+            
+            # Also check description for artist/medium info if not found in metadata
+            if artist == "Unknown Artist" and description:
+                artist_match = re.search(r'artist[:\s]+([^\n.]+)', description, re.IGNORECASE)
+                if artist_match:
+                    artist = artist_match.group(1).strip()
+            
+            if medium == "Unknown Medium" and description:
+                medium_match = re.search(r'media[:\s]+([^\n.]+)', description, re.IGNORECASE)
+                if medium_match:
+                    medium = medium_match.group(1).strip()
             
             return {
                 'url': painting_url,
@@ -392,11 +432,12 @@ class PaintingAppraiser:
                 'artist': artist,
                 'medium': medium,
                 'dimensions': dimensions,
-                'description': description
+                'description': description,
+                'api_data': data  # Store full API data for reference
             }
             
         except Exception as e:
-            print(f"Error fetching painting details from {painting_url}: {e}")
+            print(f"Error fetching painting details from API for item {item_id}: {e}")
             return None
 
     def appraise_painting(self, painting_info: Dict) -> Optional[Dict]:
@@ -446,10 +487,10 @@ class PaintingAppraiser:
                - Look for any authentication guides or red flags
                - Check museum collections or catalogs
 
-            CRITICAL APPRAISAL GUIDELINES:
+            Guidelines on unknown artists:
             - If NO market data, auction records, or recognition is found for the artist, treat as UNKNOWN ARTIST
-            - Unknown artists typically sell for $25-$200 depending on size, quality, and decorative appeal
-            - Only established artists with documented sales history should be valued above $500
+            - Unknown artists typically sell for less and value depends more on size, quality, and decorative appeal
+            - Only established artists with documented sales history should be valued highly
             - Be extremely conservative with valuations for unverified or unknown artists
             
             EXAMPLE: If you find an artist named "John Smith" but your web search reveals no auction records, no art galleries representing them, no museum collections, and no recent sales data, then value the painting as if by an unknown artist ($25-$200 range), NOT as if by an established artist ($1000+ range).
@@ -553,9 +594,6 @@ class PaintingAppraiser:
         start_item = data["last_item"]
         
         try:
-            # Start browser for scraping
-            self.start_browser()
-            
             for page in range(start_page, max_pages + 1):
                 print(f"\n--- Processing page {page} ---")
                 
@@ -577,8 +615,11 @@ class PaintingAppraiser:
                     print(f"\nProcessing painting {i+1}/{len(paintings)}: {painting_basic['title']}")
                     
                     try:
+                        # Note: API already filters for active auctions when active_auctions_only=True
+                        # No need for additional client-side filtering since API does this efficiently
+                        
                         # Get detailed painting information
-                        painting_details = self.get_painting_details(painting_basic['url'])
+                        painting_details = self.get_painting_details(painting_basic['url'], painting_basic['item_id'])
                         if not painting_details:
                             processed_urls.add(painting_basic['url'])
                             continue
@@ -589,7 +630,6 @@ class PaintingAppraiser:
                             processed_urls.add(painting_basic['url'])
                             continue
                         
-                        # Check if it meets our threshold
                         best_estimate = appraisal.get('estimated_value_best', 0)
                         # Ensure best_estimate is a number
                         if isinstance(best_estimate, str):
@@ -598,7 +638,7 @@ class PaintingAppraiser:
                             except:
                                 best_estimate = 0
                         
-                        # Add all paintings regardless of threshold (we'll sort later)
+                        # Add all appraisals to the list
                         paintings_list.append(appraisal)
                         print(f"📊 APPRAISED: ${best_estimate:,.2f} - {painting_details['title']}")
                         print(f"   URL: {painting_details['url']}")
@@ -648,8 +688,6 @@ class PaintingAppraiser:
                 # Brief pause between pages
                 time.sleep(2)
         finally:
-            # Always stop the browser when done
-            self.stop_browser()
             # Final data save
             self.save_paintings(data, paintings_file)
         
@@ -699,16 +737,21 @@ class PaintingAppraiser:
 
 def main():
     parser = argparse.ArgumentParser(description='Appraise paintings from ShopGoodwill.com')
-    parser.add_argument('--threshold', type=float, default=500.0,
-                      help='Minimum estimated value threshold in USD (default: 500)')
-    parser.add_argument('--max-pages', type=int, default=3,
-                      help='Maximum number of pages to process (default: 3)')
+    parser.add_argument('--max-pages', type=int, default=1000,
+                      help='Maximum number of pages to process (default: 1000)')
     parser.add_argument('--delay', type=float, default=1.0,
                       help='Delay between API calls in seconds (default: 1.0)')
     parser.add_argument('--paintings-file', default='appraisals.json',
                       help='Paintings data file for storing results and progress (default: appraisals.json)')
+    parser.add_argument('--include-ended-auctions', dest='include_ended_auctions', action='store_true', default=False,
+                      help='Include ended auctions as well')
+    parser.add_argument('--no-include-ended-auctions', dest='include_ended_auctions', action='store_false',
+                      help='Only process paintings with active auctions (default)')
     
     args = parser.parse_args()
+    
+    # Handle auction filtering logic
+    active_auctions_only = not args.include_ended_auctions
     
     # Get API key from environment variable
     api_key = os.environ.get('OPENAI_API_KEY')
@@ -719,11 +762,12 @@ def main():
         print("Get your API key from: https://platform.openai.com/")
         sys.exit(1)
     
-    print(f"Starting painting appraisal (all paintings will be sorted by value)")
+    auction_filter_msg = "active auctions only" if active_auctions_only else "all auctions (including ended)"
+    print(f"Starting painting appraisal ({auction_filter_msg})")
     print(f"Processing up to {args.max_pages} pages")
     
     # Initialize the appraiser
-    appraiser = PaintingAppraiser(api_key, args.threshold)
+    appraiser = PaintingAppraiser(api_key, active_auctions_only)
     
     try:
         # Run the appraisal

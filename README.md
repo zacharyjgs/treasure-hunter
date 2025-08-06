@@ -61,15 +61,29 @@ python appraise.py \
   --threshold 1000 \
   --max-pages 5 \
   --delay 2.0 \
-  --output my_valuable_paintings.json
+  --paintings-file my_valuable_paintings.json
+```
+
+### Active Auction Filtering
+
+By default, the script only processes paintings with active auctions to avoid wasting time on already-ended auctions:
+
+```bash
+# Only process active auctions (default behavior)
+python appraise.py --threshold 500
+
+# Process all auctions including ended ones
+python appraise.py --threshold 500 --include-ended-auctions
 ```
 
 ### Command Line Arguments
 
 - `--threshold`: Minimum estimated value in USD (default: 500)
-- `--max-pages`: Maximum number of pages to process (default: 3)
+- `--max-pages`: Maximum number of pages to process (default: 1000)
 - `--delay`: Delay between API calls in seconds (default: 1.0)
-- `--output`: Output JSON filename (default: valuable_paintings.json)
+- `--paintings-file`: Paintings data file for storing results and progress (default: appraisals.json)
+- `--include-ended-auctions`: Include ended auctions as well
+- `--no-include-ended-auctions`: Only process paintings with active auctions (default)
 
 ## Example Output
 
