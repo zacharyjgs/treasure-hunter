@@ -65,6 +65,7 @@ class Appraisal(BaseModel):
     quality: str
     signature_details: str
     back_markings: str
+    frame_construction: str
     painting_info: PaintingInfo
 
 
@@ -93,6 +94,7 @@ class AppraisalResponse(BaseModel):
     quality: str  # Overall artistic quality assessment (e.g., Excellent, Good, Average, Poor)
     signature_details: str  # Description of signature, monogram, or stamp found on artwork
     back_markings: str  # Auction house labels, gallery stickers, exhibition tags, or other back markings
+    frame_construction: str  # Details about frame, stretcher bars, joints, and construction methods
 
 
 class PaintingAppraiser:
@@ -413,7 +415,7 @@ class PaintingAppraiser:
             5. Style and time period - Analyze the artistic style and estimate when it was created
             6. Subject matter - Describe what the artwork depicts
             7. Overall condition - Note any visible damage, wear, or restoration
-            8. Frame and construction details - Examine the frame, stretcher bars, and frame joints as these can indicate the artwork's age and period value
+            8. Frame construction - Examine and describe the frame, stretcher bars, joinery methods, and construction details as these can indicate the artwork's age and period value
             9. Back markings - Look for auction house labels, gallery stickers, exhibition tags, or other markings that indicate provenance
             10. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
 
@@ -489,7 +491,7 @@ class PaintingAppraiser:
             
             # Use Responses API with web search and structured outputs
             response = self.client.responses.parse(
-                model="gpt-4o-2024-08-06",
+                model="o4-mini",
                 input=[
                     {
                         "role": "user",
@@ -532,6 +534,7 @@ class PaintingAppraiser:
                 quality=appraisal_response.quality,
                 signature_details=appraisal_response.signature_details,
                 back_markings=appraisal_response.back_markings,
+                frame_construction=appraisal_response.frame_construction,
                 painting_info=painting_info
             )
 
@@ -589,6 +592,7 @@ class PaintingAppraiser:
                     quality=str(row.get('quality', '')),
                     signature_details=str(row.get('signature_details', '')),
                     back_markings=str(row.get('back_markings', '')),
+                    frame_construction=str(row.get('frame_construction', '')),
                     painting_info=painting_info
                 )
                 appraisals.append(appraisal)
@@ -635,6 +639,7 @@ class PaintingAppraiser:
                     'quality': appraisal.quality,
                     'signature_details': appraisal.signature_details,
                     'back_markings': appraisal.back_markings,
+                    'frame_construction': appraisal.frame_construction,
                     'title': appraisal.painting_info.title,
                     'current_price': appraisal.painting_info.current_price,
                     'url': appraisal.painting_info.url,
@@ -653,7 +658,7 @@ class PaintingAppraiser:
             column_order = [
                 'estimated_value_best', 'estimated_value_min', 'estimated_value_max',
                 'confidence_level', 'market_category', 
-                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'signature_details', 'back_markings', 'current_price', 'url', 'image_url', 'image_urls',
+                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'signature_details', 'back_markings', 'frame_construction', 'current_price', 'url', 'image_url', 'image_urls',
                 'reasoning', 'risk_factors', 'web_search_summary', 'recent_sales_data',
                 'artist_market_status', 'authentication_notes', 'comparable_works', 'description'
             ]
@@ -803,6 +808,7 @@ class PaintingAppraiser:
         print(f"QUALITY: {appraisal.quality or 'Unknown'}")
         print(f"SIGNATURE: {appraisal.signature_details or 'Not specified'}")
         print(f"BACK MARKINGS: {appraisal.back_markings or 'None noted'}")
+        print(f"FRAME CONSTRUCTION: {appraisal.frame_construction or 'Not analyzed'}")
         
         print(f"\n💰 VALUATION:")
         print(f"   Range: ${appraisal.estimated_value_min:,.2f} - ${appraisal.estimated_value_max:,.2f}")
