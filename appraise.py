@@ -10,7 +10,7 @@ Usage:
     python appraise.py
 
 Requirements:
-    pip install requests beautifulsoup4 openai pillow python-dateutil
+    pip install requests beautifulsoup4 openai pillow python-dateutil pandas
 """
 
 import argparse
@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse, quote
 
 import openai
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
@@ -549,32 +550,106 @@ class PaintingAppraiser:
             print(f"Error appraising painting {painting_info.get('title', 'Unknown')}: {e}")
             return None
 
-    def load_paintings(self, paintings_file: str = "appraisals.json") -> Dict:
-        """Load paintings data from previous run if it exists."""
+    def load_paintings(self, paintings_file: str = "appraisals.csv") -> Dict:
+        """Load paintings data from CSV file using pandas."""
         try:
-            with open(paintings_file, 'r') as f:
-                data = json.load(f)
-                print(f"Loaded data: {len(data.get('paintings', []))} paintings found so far")
-                return data
+            df = pd.read_csv(paintings_file)
+            paintings = []
+            processed_urls = set()
+            
+            for _, row in df.iterrows():
+                appraisal = {
+                    'estimated_value_min': float(row['estimated_value_min']),
+                    'estimated_value_max': float(row['estimated_value_max']),
+                    'estimated_value_best': float(row['estimated_value_best']),
+                    'confidence_level': str(row['confidence_level']),
+                    'reasoning': str(row['reasoning']),
+                    'risk_factors': str(row['risk_factors']),
+                    'market_category': str(row['market_category']),
+                    'web_search_summary': str(row['web_search_summary']),
+                    'recent_sales_data': str(row['recent_sales_data']),
+                    'artist_market_status': str(row['artist_market_status']),
+                    'authentication_notes': str(row['authentication_notes']),
+                    'comparable_works': str(row['comparable_works']),
+                    'painting_info': {
+                        'url': str(row['url']),
+                        'title': str(row['title']),
+                        'image_url': str(row['image_url']),
+                        'current_price': str(row['current_price']),
+                        'artist': str(row['artist']),
+                        'medium': str(row['medium']),
+                        'dimensions': str(row['dimensions']),
+                        'description': str(row['description'])
+                    }
+                }
+                paintings.append(appraisal)
+                processed_urls.add(str(row['url']))
+            
+            print(f"Loaded data: {len(paintings)} paintings found so far")
+            return {"paintings": paintings, "processed_urls": processed_urls, "last_page": 0, "last_item": 0}
+            
         except FileNotFoundError:
             return {"paintings": [], "processed_urls": set(), "last_page": 0, "last_item": 0}
         except Exception as e:
             print(f"Error loading paintings data: {e}")
             return {"paintings": [], "processed_urls": set(), "last_page": 0, "last_item": 0}
 
-    def save_paintings(self, data: Dict, paintings_file: str = "appraisals.json"):
-        """Save paintings data to file."""
+    def save_paintings(self, data: Dict, paintings_file: str = "appraisals.csv"):
+        """Save paintings data to CSV file using pandas, sorted by descending appraisal value."""
         try:
-            # Convert set to list for JSON serialization
-            data_copy = data.copy()
-            data_copy["processed_urls"] = list(data_copy["processed_urls"])
+            paintings = data["paintings"]
             
-            with open(paintings_file, 'w') as f:
-                json.dump(data_copy, f, indent=2)
+            # Flatten the data structure for pandas DataFrame
+            rows = []
+            for painting in paintings:
+                row = {
+                    'estimated_value_best': painting.get('estimated_value_best', 0),
+                    'estimated_value_min': painting.get('estimated_value_min', 0),
+                    'estimated_value_max': painting.get('estimated_value_max', 0),
+                    'confidence_level': painting.get('confidence_level', ''),
+                    'market_category': painting.get('market_category', ''),
+                    'reasoning': painting.get('reasoning', ''),
+                    'risk_factors': painting.get('risk_factors', ''),
+                    'web_search_summary': painting.get('web_search_summary', ''),
+                    'recent_sales_data': painting.get('recent_sales_data', ''),
+                    'artist_market_status': painting.get('artist_market_status', ''),
+                    'authentication_notes': painting.get('authentication_notes', ''),
+                    'comparable_works': painting.get('comparable_works', ''),
+                    'title': painting['painting_info'].get('title', ''),
+                    'artist': painting['painting_info'].get('artist', ''),
+                    'medium': painting['painting_info'].get('medium', ''),
+                    'dimensions': painting['painting_info'].get('dimensions', ''),
+                    'current_price': painting['painting_info'].get('current_price', ''),
+                    'url': painting['painting_info'].get('url', ''),
+                    'image_url': painting['painting_info'].get('image_url', ''),
+                    'description': painting['painting_info'].get('description', '')
+                }
+                rows.append(row)
+            
+            # Create DataFrame and sort by estimated_value_best descending
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                df = df.sort_values('estimated_value_best', ascending=False)
+            
+            # Define column order
+            column_order = [
+                'estimated_value_best', 'estimated_value_min', 'estimated_value_max',
+                'confidence_level', 'market_category', 
+                'title', 'artist', 'medium', 'dimensions', 'current_price', 'url', 'image_url',
+                'reasoning', 'risk_factors', 'web_search_summary', 'recent_sales_data',
+                'artist_market_status', 'authentication_notes', 'comparable_works', 'description'
+            ]
+            
+            # Reorder columns and save to CSV
+            df = df[column_order]
+            df.to_csv(paintings_file, index=False, encoding='utf-8')
+            
+            print(f"Saved {len(df)} paintings to {paintings_file} (sorted by value)")
+                    
         except Exception as e:
             print(f"Error saving paintings data: {e}")
 
-    def run_appraisal(self, max_pages: int = 5, delay: float = 1.0, paintings_file: str = "appraisals.json") -> List[Dict]:
+    def run_appraisal(self, max_pages: int = 5, delay: float = 1.0, paintings_file: str = "appraisals.csv") -> List[Dict]:
         """
         Run the full appraisal process on multiple pages of paintings with data saving.
         
@@ -658,7 +733,7 @@ class PaintingAppraiser:
                             "last_item": i + 1
                         })
                         
-                        # Save data every 5 items
+                        # Save data every 5 items (sorted by value)
                         if (i + 1) % 5 == 0:
                             self.save_paintings(data, paintings_file)
                         
@@ -787,8 +862,8 @@ def main():
                       help='Maximum number of pages to process (default: 1000)')
     parser.add_argument('--delay', type=float, default=1.0,
                       help='Delay between API calls in seconds (default: 1.0)')
-    parser.add_argument('--paintings-file', default='appraisals.json',
-                      help='Paintings data file for storing results and progress (default: appraisals.json)')
+    parser.add_argument('--paintings-file', default='appraisals.csv',
+                      help='Paintings data file for storing results and progress (default: appraisals.csv)')
     parser.add_argument('--include-ended-auctions', dest='include_ended_auctions', action='store_true', default=False,
                       help='Include ended auctions as well')
     parser.add_argument('--no-include-ended-auctions', dest='include_ended_auctions', action='store_false',
