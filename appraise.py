@@ -161,7 +161,7 @@ class PaintingAppraiser:
                 "searchBuyNowOnly": "",
                 "searchPickupOnly": "false",
                 "searchNoPickupOnly": "true",  # Exclude pickup only items
-                "searchOneCentShippingOnly": "true" if self.active_auctions_only else "false",
+                "searchOneCentShippingOnly": "false",
                 "searchDescriptions": "false",
                 "searchClosedAuctions": "false" if self.active_auctions_only else "true",
                 "closedAuctionEndingDate": date_str,
@@ -640,8 +640,13 @@ class PaintingAppraiser:
                         
                         # Add all appraisals to the list
                         paintings_list.append(appraisal)
+                        
+                        # Print detailed appraisal findings to console
+                        self.print_appraisal_findings(appraisal)
+                        
                         print(f"📊 APPRAISED: ${best_estimate:,.2f} - {painting_details['title']}")
                         print(f"   URL: {painting_details['url']}")
+                        print("─" * 80)
                     
                         processed_urls.add(painting_basic['url'])
                         
@@ -708,6 +713,47 @@ class PaintingAppraiser:
         return 0
 
 
+
+    def print_appraisal_findings(self, appraisal: Dict):
+        """Print detailed appraisal findings for a single painting."""
+        painting = appraisal['painting_info']
+        
+        print(f"\n🎨 DETAILED APPRAISAL FINDINGS")
+        print(f"{'='*60}")
+        print(f"Title: {painting['title']}")
+        print(f"Artist: {painting['artist']}")
+        print(f"Medium: {painting['medium']}")
+        print(f"Dimensions: {painting.get('dimensions', 'Unknown')}")
+        print(f"Current Price: {painting['current_price']}")
+        print(f"Listing URL: {painting['url']}")
+        
+        print(f"\n💰 VALUATION:")
+        print(f"   Range: ${appraisal.get('estimated_value_min', 0):,.2f} - ${appraisal.get('estimated_value_max', 0):,.2f}")
+        print(f"   Best Estimate: ${appraisal.get('estimated_value_best', 0):,.2f}")
+        print(f"   Confidence Level: {appraisal.get('confidence_level', 'Unknown')}")
+        print(f"   Market Category: {appraisal.get('market_category', 'Unknown')}")
+        
+        print(f"\n🔍 ANALYSIS:")
+        if appraisal.get('reasoning'):
+            print(f"   Reasoning: {appraisal['reasoning']}")
+        
+        if appraisal.get('artist_market_status'):
+            print(f"   Artist Market Status: {appraisal['artist_market_status']}")
+        
+        if appraisal.get('web_search_summary'):
+            print(f"   Web Research: {appraisal['web_search_summary']}")
+        
+        if appraisal.get('recent_sales_data'):
+            print(f"   Recent Sales: {appraisal['recent_sales_data']}")
+        
+        if appraisal.get('comparable_works'):
+            print(f"   Comparable Works: {appraisal['comparable_works']}")
+        
+        if appraisal.get('authentication_notes'):
+            print(f"   Authentication: {appraisal['authentication_notes']}")
+        
+        if appraisal.get('risk_factors'):
+            print(f"   Risk Factors: {appraisal['risk_factors']}")
 
     def print_summary(self, results: List[Dict]):
         """Print a summary of all paintings sorted by estimated value."""
