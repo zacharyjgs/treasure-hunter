@@ -1,6 +1,7 @@
 .idea/
 .venv/
 .python-version
+.DS_Store
 
 # Appraisal results and data files
 *.csv
