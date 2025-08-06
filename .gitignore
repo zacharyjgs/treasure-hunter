@@ -3,6 +3,5 @@
 .python-version
 
 # Appraisal results and data files
-appraisals.json
-appraisals.csv
-*.json.backup
+*.csv
+*.csv.backup

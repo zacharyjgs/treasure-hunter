@@ -28,7 +28,40 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 
-class ArtAppraisal(BaseModel):
+class PaintingInfo(BaseModel):
+    """Information about a painting listing."""
+    url: str
+    title: str
+    image_url: Optional[str] = None
+    current_price: str = "Unknown"
+    description: str = ""
+    item_id: Optional[str] = None
+    api_data: Optional[Dict] = None
+
+
+class Appraisal(BaseModel):
+    """Complete appraisal result for a painting."""
+    estimated_value_min: float
+    estimated_value_max: float
+    estimated_value_best: float
+    confidence_level: str
+    reasoning: str
+    risk_factors: str
+    market_category: str
+    web_search_summary: str
+    recent_sales_data: str
+    artist_market_status: str
+    authentication_notes: str
+    comparable_works: str
+    artist: str
+    description_summary: str
+    medium: str
+    dimensions: str
+    painting_info: PaintingInfo
+
+
+class AppraisalResponse(BaseModel):
+    """Response format for AI-generated appraisal data from OpenAI API."""
     estimated_value_min: float  # Should be $10-$75 for unknown artists, $25-$200 for decorative unknown works
     estimated_value_max: float  # Should rarely exceed $300 for unknown artists unless exceptional quality
     estimated_value_best: float  # Conservative middle estimate
@@ -41,6 +74,10 @@ class ArtAppraisal(BaseModel):
     artist_market_status: str  # Should clearly state "No established art market presence" if applicable
     authentication_notes: str  # Should mention lack of known works/signatures for unknown artists
     comparable_works: str  # Should reference general unknown artist market prices if no specifics found
+    artist: str  # Artist name extracted from title, description, or signature analysis
+    description_summary: str  # Brief summary of the artwork based on title and description
+    medium: str  # Medium/materials used (oil on canvas, watercolor, acrylic, etc.)
+    dimensions: str  # Size/dimensions of the artwork if available
 
 
 class PaintingAppraiser:
@@ -100,7 +137,7 @@ class PaintingAppraiser:
         # This is for cases where the image URL doesn't have clear indicators
         return True
         
-    def get_paintings_list(self, page: int = 1) -> List[Dict]:
+    def get_paintings_list(self, page: int = 1) -> List[PaintingInfo]:
         """
         Get paintings listing using the API endpoint instead of web scraping.
         
@@ -108,7 +145,7 @@ class PaintingAppraiser:
             page: Page number to fetch
             
         Returns:
-            List of painting dictionaries with basic info
+            List of PaintingInfo objects with basic info
         """
         try:
             # Generate current date + 30 days for auction end date filter
@@ -201,13 +238,14 @@ class PaintingAppraiser:
                     if item.get('currentPrice'):
                         current_price = f"${item['currentPrice']:.2f}"
                     
-                    paintings.append({
-                        'item_id': item_id,
-                        'url': url,
-                        'title': title,
-                        'current_price': current_price,
-                        'api_data': item  # Store full API data for later use
-                    })
+                    painting_info = PaintingInfo(
+                        url=url,
+                        title=title,
+                        current_price=current_price,
+                        item_id=item_id,
+                        api_data=item
+                    )
+                    paintings.append(painting_info)
                     
                 except Exception as e:
                     print(f"Error processing item: {e}")
@@ -220,7 +258,7 @@ class PaintingAppraiser:
             print(f"Error fetching paintings list from API: {e}")
             return []
 
-    def get_painting_details(self, painting_url: str, item_id: str = None) -> Optional[Dict]:
+    def get_painting_details(self, painting_url: str, item_id: str = None) -> Optional[PaintingInfo]:
         """
         Get detailed information about a specific painting using the API endpoint.
         
@@ -229,7 +267,7 @@ class PaintingAppraiser:
             item_id: Item ID (extracted from URL if not provided)
             
         Returns:
-            Dictionary with detailed painting info or None if failed
+            PaintingInfo object with detailed painting info or None if failed
         """
         try:
             # Extract item ID from URL if not provided
@@ -294,35 +332,36 @@ class PaintingAppraiser:
                     image_server = data.get('imageServer', 'https://shopgoodwillimages.azureedge.net/production/')
                     image_url = f"{image_server}{image_path}"
             
-            return {
-                'url': painting_url,
-                'title': title,
-                'image_url': image_url,
-                'current_price': current_price,
-                'description': description,
-                'api_data': data  # Store full API data for reference
-            }
+            return PaintingInfo(
+                url=painting_url,
+                title=title,
+                image_url=image_url,
+                current_price=current_price,
+                description=description,
+                item_id=item_id,
+                api_data=data
+            )
             
         except Exception as e:
             print(f"Error fetching painting details from API for item {item_id}: {e}")
             return None
 
-    def appraise_painting(self, painting_info: Dict) -> Optional[Dict]:
+    def appraise_painting(self, painting_info: PaintingInfo) -> Optional[Appraisal]:
         """
         Use OpenAI GPT-4o multimodal API to appraise a painting with enhanced research-style prompts that encourage thorough analysis.
         
         Args:
-            painting_info: Dictionary with painting information including image_url
+            painting_info: PaintingInfo object with painting information including image_url
             
         Returns:
-            Dictionary with appraisal results or None if failed
+            Appraisal object with appraisal results or None if failed
         """
-        if not painting_info.get('image_url'):
-            print(f"No image URL for painting: {painting_info.get('title', 'Unknown')}")
+        if not painting_info.image_url:
+            print(f"No image URL for painting: {painting_info.title}")
             return None
         
         # Use the image URL directly since we now find proper JPEG images
-        image_url = painting_info['image_url']
+        image_url = painting_info.image_url
         
         try:
             # Construct the prompt for appraisal with web search capabilities
@@ -330,8 +369,8 @@ class PaintingAppraiser:
             You are an expert art appraiser with access to real-time market data through web search. Analyze this painting and provide a comprehensive market appraisal.
 
             Known Information:
-            - Title: {painting_info.get('title', 'Unknown')}
-            - Description: {painting_info.get('description', '')[:1000]}...
+            - Title: {painting_info.title}
+            - Description: {painting_info.description[:1000]}...
 
             REQUIRED: Use web search to research the following before making your appraisal:
             
@@ -365,15 +404,19 @@ class PaintingAppraiser:
             4. Market demand and recent sales data
             5. Artist recognition and career status
             6. Authentication likelihood
+            7. Artist name extracted from title, description, or visible signature
+            8. Brief description summary of the artwork
+            9. Medium/materials used (oil on canvas, watercolor, acrylic, etc.)
+            10. Dimensions/size of the artwork if visible or mentioned
 
             Provide your response using the structured output format with comprehensive analysis including web research findings.
             """
             
             # Debug: Print the image URL being sent to OpenAI
+            print(f"📝 TITLE: {painting_info.title}")
+            print(f"🔗 LISTING URL: {painting_info.url}")
+            print(f"💵 CURRENT PRICE: {painting_info.current_price}")
             print(f"🖼️ IMAGE URL: {image_url}")
-            print(f"📝 TITLE: {painting_info.get('title', 'Unknown')}")
-            print(f"🔗 LISTING URL: {painting_info.get('url', 'Unknown')}")
-            print("─" * 80)
             
             # Use Responses API with web search and structured outputs
             response = self.client.responses.parse(
@@ -395,95 +438,118 @@ class PaintingAppraiser:
                         "type": "web_search"
                     }
                 ],
-                text_format=ArtAppraisal
+                text_format=AppraisalResponse
             )
             
             # Extract structured data from Responses API using output_parsed
-            appraisal_data = response.output_parsed
+            appraisal_response = response.output_parsed
             
-            # Convert Pydantic model to dict and add painting info
-            appraisal_dict = appraisal_data.model_dump()
-            appraisal_dict['painting_info'] = painting_info
+            # Create Appraisal object with the extracted data and painting info
+            appraisal = Appraisal(
+                estimated_value_min=appraisal_response.estimated_value_min,
+                estimated_value_max=appraisal_response.estimated_value_max,
+                estimated_value_best=appraisal_response.estimated_value_best,
+                confidence_level=appraisal_response.confidence_level,
+                reasoning=appraisal_response.reasoning,
+                risk_factors=appraisal_response.risk_factors,
+                market_category=appraisal_response.market_category,
+                web_search_summary=appraisal_response.web_search_summary,
+                recent_sales_data=appraisal_response.recent_sales_data,
+                artist_market_status=appraisal_response.artist_market_status,
+                authentication_notes=appraisal_response.authentication_notes,
+                comparable_works=appraisal_response.comparable_works,
+                artist=appraisal_response.artist,
+                description_summary=appraisal_response.description_summary,
+                medium=appraisal_response.medium,
+                dimensions=appraisal_response.dimensions,
+                painting_info=painting_info
+            )
             
-            return appraisal_dict
+            return appraisal
                 
         except Exception as e:
-            print(f"Error appraising painting {painting_info.get('title', 'Unknown')}: {e}")
+            print(f"Error appraising painting {painting_info.title}: {e}")
             return None
 
-    def load_paintings(self, paintings_file: str = "appraisals.csv") -> Dict:
-        """Load paintings data from CSV file using pandas."""
+    def load_appraisals(self, appraisals_file: str = "appraisals.csv") -> Dict:
+        """Load appraisal data from CSV file using pandas."""
         try:
-            df = pd.read_csv(paintings_file)
-            paintings = []
+            df = pd.read_csv(appraisals_file)
+            appraisals = []
             processed_urls = set()
             
             for _, row in df.iterrows():
-                appraisal = {
-                    'estimated_value_min': float(row['estimated_value_min']),
-                    'estimated_value_max': float(row['estimated_value_max']),
-                    'estimated_value_best': float(row['estimated_value_best']),
-                    'confidence_level': str(row['confidence_level']),
-                    'reasoning': str(row['reasoning']),
-                    'risk_factors': str(row['risk_factors']),
-                    'market_category': str(row['market_category']),
-                    'web_search_summary': str(row['web_search_summary']),
-                    'recent_sales_data': str(row['recent_sales_data']),
-                    'artist_market_status': str(row['artist_market_status']),
-                    'authentication_notes': str(row['authentication_notes']),
-                    'comparable_works': str(row['comparable_works']),
-                    'painting_info': {
-                        'url': str(row['url']),
-                        'title': str(row['title']),
-                        'image_url': str(row['image_url']),
-                        'current_price': str(row['current_price']),
-                        'artist': str(row['artist']),
-                        'medium': str(row['medium']),
-                        'dimensions': str(row['dimensions']),
-                        'description': str(row['description'])
-                    }
-                }
-                paintings.append(appraisal)
+                # Create PaintingInfo object
+                painting_info = PaintingInfo(
+                    url=str(row['url']),
+                    title=str(row['title']),
+                    image_url=str(row['image_url']),
+                    current_price=str(row['current_price']),
+                    description=str(row['description'])
+                )
+                
+                # Create Appraisal object
+                appraisal = Appraisal(
+                    estimated_value_min=float(row['estimated_value_min']),
+                    estimated_value_max=float(row['estimated_value_max']),
+                    estimated_value_best=float(row['estimated_value_best']),
+                    confidence_level=str(row['confidence_level']),
+                    reasoning=str(row['reasoning']),
+                    risk_factors=str(row['risk_factors']),
+                    market_category=str(row['market_category']),
+                    web_search_summary=str(row['web_search_summary']),
+                    recent_sales_data=str(row['recent_sales_data']),
+                    artist_market_status=str(row['artist_market_status']),
+                    authentication_notes=str(row['authentication_notes']),
+                    comparable_works=str(row['comparable_works']),
+                    artist=str(row.get('artist', '')),
+                    description_summary=str(row.get('description_summary', '')),
+                    medium=str(row.get('medium', '')),
+                    dimensions=str(row.get('dimensions', '')),
+                    painting_info=painting_info
+                )
+                appraisals.append(appraisal)
                 processed_urls.add(str(row['url']))
             
-            print(f"Loaded data: {len(paintings)} paintings found so far")
-            return {"paintings": paintings, "processed_urls": processed_urls, "last_page": 0, "last_item": 0}
+            print(f"Loaded data: {len(appraisals)} appraisals found so far")
+            return {"appraisals": appraisals, "processed_urls": processed_urls, "last_page": 0, "last_item": 0}
             
         except FileNotFoundError:
-            return {"paintings": [], "processed_urls": set(), "last_page": 0, "last_item": 0}
+            return {"appraisals": [], "processed_urls": set(), "last_page": 0, "last_item": 0}
         except Exception as e:
-            print(f"Error loading paintings data: {e}")
-            return {"paintings": [], "processed_urls": set(), "last_page": 0, "last_item": 0}
+            print(f"Error loading appraisal data: {e}")
+            return {"appraisals": [], "processed_urls": set(), "last_page": 0, "last_item": 0}
 
-    def save_paintings(self, data: Dict, paintings_file: str = "appraisals.csv"):
-        """Save paintings data to CSV file using pandas, sorted by descending appraisal value."""
+    def save_appraisals(self, data: Dict, appraisals_file: str = "appraisals.csv"):
+        """Save appraisal data to CSV file using pandas, sorted by descending appraisal value."""
         try:
-            paintings = data["paintings"]
+            appraisals = data["appraisals"]
             
-            # Flatten the data structure for pandas DataFrame
+            # Flatten the Appraisal objects for pandas DataFrame
             rows = []
-            for painting in paintings:
+            for appraisal in appraisals:
                 row = {
-                    'estimated_value_best': painting.get('estimated_value_best', 0),
-                    'estimated_value_min': painting.get('estimated_value_min', 0),
-                    'estimated_value_max': painting.get('estimated_value_max', 0),
-                    'confidence_level': painting.get('confidence_level', ''),
-                    'market_category': painting.get('market_category', ''),
-                    'reasoning': painting.get('reasoning', ''),
-                    'risk_factors': painting.get('risk_factors', ''),
-                    'web_search_summary': painting.get('web_search_summary', ''),
-                    'recent_sales_data': painting.get('recent_sales_data', ''),
-                    'artist_market_status': painting.get('artist_market_status', ''),
-                    'authentication_notes': painting.get('authentication_notes', ''),
-                    'comparable_works': painting.get('comparable_works', ''),
-                    'title': painting['painting_info'].get('title', ''),
-                    'artist': painting['painting_info'].get('artist', ''),
-                    'medium': painting['painting_info'].get('medium', ''),
-                    'dimensions': painting['painting_info'].get('dimensions', ''),
-                    'current_price': painting['painting_info'].get('current_price', ''),
-                    'url': painting['painting_info'].get('url', ''),
-                    'image_url': painting['painting_info'].get('image_url', ''),
-                    'description': painting['painting_info'].get('description', '')
+                    'estimated_value_best': appraisal.estimated_value_best,
+                    'estimated_value_min': appraisal.estimated_value_min,
+                    'estimated_value_max': appraisal.estimated_value_max,
+                    'confidence_level': appraisal.confidence_level,
+                    'market_category': appraisal.market_category,
+                    'reasoning': appraisal.reasoning,
+                    'risk_factors': appraisal.risk_factors,
+                    'web_search_summary': appraisal.web_search_summary,
+                    'recent_sales_data': appraisal.recent_sales_data,
+                    'artist_market_status': appraisal.artist_market_status,
+                    'authentication_notes': appraisal.authentication_notes,
+                    'comparable_works': appraisal.comparable_works,
+                    'artist': appraisal.artist,
+                    'description_summary': appraisal.description_summary,
+                    'medium': appraisal.medium,
+                    'dimensions': appraisal.dimensions,
+                    'title': appraisal.painting_info.title,
+                    'current_price': appraisal.painting_info.current_price,
+                    'url': appraisal.painting_info.url,
+                    'image_url': appraisal.painting_info.image_url or '',
+                    'description': appraisal.painting_info.description
                 }
                 rows.append(row)
             
@@ -496,35 +562,35 @@ class PaintingAppraiser:
             column_order = [
                 'estimated_value_best', 'estimated_value_min', 'estimated_value_max',
                 'confidence_level', 'market_category', 
-                'title', 'artist', 'medium', 'dimensions', 'current_price', 'url', 'image_url',
+                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'current_price', 'url', 'image_url',
                 'reasoning', 'risk_factors', 'web_search_summary', 'recent_sales_data',
                 'artist_market_status', 'authentication_notes', 'comparable_works', 'description'
             ]
             
             # Reorder columns and save to CSV
             df = df[column_order]
-            df.to_csv(paintings_file, index=False, encoding='utf-8')
+            df.to_csv(appraisals_file, index=False, encoding='utf-8')
             
-            print(f"Saved {len(df)} paintings to {paintings_file} (sorted by value)")
+            print(f"Saved {len(df)} appraisals to {appraisals_file} (sorted by value)")
                     
         except Exception as e:
-            print(f"Error saving paintings data: {e}")
+            print(f"Error saving appraisal data: {e}")
 
-    def run_appraisal(self, max_pages: int = 5, delay: float = 1.0, paintings_file: str = "appraisals.csv") -> List[Dict]:
+    def run_appraisal(self, max_pages: int = 1000, delay: float = 0.0, appraisals_file: str = "appraisals.csv") -> List[Appraisal]:
         """
-        Run the full appraisal process on multiple pages of paintings with data saving.
+        Run the full appraisal process on multiple pages of paintings with appraisal data saving.
         
         Args:
             max_pages: Maximum number of pages to process
             delay: Delay between API calls in seconds
-            paintings_file: File to save/load paintings data
+            appraisals_file: File to save/load appraisal data
             
         Returns:
-            List of appraisals for all paintings sorted by value
+            List of Appraisal objects for all paintings sorted by value
         """
         # Load previous data
-        data = self.load_paintings(paintings_file)
-        paintings_list = data["paintings"]
+        data = self.load_appraisals(appraisals_file)
+        appraisals_list = data["appraisals"]
         processed_urls = set(data["processed_urls"])
         start_page = max(1, data["last_page"])
         start_item = data["last_item"]
@@ -545,28 +611,28 @@ class PaintingAppraiser:
                 
                 for i, painting_basic in enumerate(paintings[start_index:], start_index):
                     # Skip if already processed
-                    if painting_basic['url'] in processed_urls:
+                    if painting_basic.url in processed_urls:
                         continue
                     
-                    print(f"\nProcessing painting {i+1}/{len(paintings)}: {painting_basic['title']}")
+                    print(f"\nProcessing painting {i+1}/{len(paintings)}: {painting_basic.title}")
                     
                     try:
                         # Note: API already filters for active auctions when active_auctions_only=True
                         # No need for additional client-side filtering since API does this efficiently
                         
                         # Get detailed painting information
-                        painting_details = self.get_painting_details(painting_basic['url'], painting_basic['item_id'])
+                        painting_details = self.get_painting_details(painting_basic.url, painting_basic.item_id)
                         if not painting_details:
-                            processed_urls.add(painting_basic['url'])
+                            processed_urls.add(painting_basic.url)
                             continue
                         
                         # Appraise the painting
                         appraisal = self.appraise_painting(painting_details)
                         if not appraisal:
-                            processed_urls.add(painting_basic['url'])
+                            processed_urls.add(painting_basic.url)
                             continue
                         
-                        best_estimate = appraisal.get('estimated_value_best', 0)
+                        best_estimate = appraisal.estimated_value_best
                         # Ensure best_estimate is a number
                         if isinstance(best_estimate, str):
                             try:
@@ -575,20 +641,17 @@ class PaintingAppraiser:
                                 best_estimate = 0
                         
                         # Add all appraisals to the list
-                        paintings_list.append(appraisal)
+                        appraisals_list.append(appraisal)
                         
                         # Print detailed appraisal findings to console
                         self.print_appraisal_findings(appraisal)
-                        
-                        print(f"📊 APPRAISED: ${best_estimate:,.2f} - {painting_details['title']}")
-                        print(f"   URL: {painting_details['url']}")
                         print("─" * 80)
                     
-                        processed_urls.add(painting_basic['url'])
+                        processed_urls.add(painting_basic.url)
                         
                         # Update data
                         data.update({
-                            "paintings": paintings_list,
+                            "appraisals": appraisals_list,
                             "processed_urls": processed_urls,
                             "last_page": page,
                             "last_item": i + 1
@@ -596,22 +659,22 @@ class PaintingAppraiser:
                         
                         # Save data every 5 items (sorted by value)
                         if (i + 1) % 5 == 0:
-                            self.save_paintings(data, paintings_file)
+                            self.save_appraisals(data, appraisals_file)
                         
                         # Rate limiting
                         time.sleep(delay)
                         
                     except Exception as e:
-                        print(f"Error processing painting {painting_basic['title']}: {e}")
-                        processed_urls.add(painting_basic['url'])
+                        print(f"Error processing painting {painting_basic.title}: {e}")
+                        processed_urls.add(painting_basic.url)
                         # Save data after error
                         data.update({
-                            "paintings": paintings_list,
+                            "appraisals": appraisals_list,
                             "processed_urls": processed_urls,
                             "last_page": page,
                             "last_item": i + 1
                         })
-                        self.save_paintings(data, paintings_file)
+                        self.save_appraisals(data, appraisals_file)
                         continue
                 
                 # Reset start_item for next page
@@ -619,23 +682,23 @@ class PaintingAppraiser:
                 
                 # Save data after each page
                 data.update({
-                    "paintings": paintings_list,
+                    "appraisals": appraisals_list,
                     "processed_urls": processed_urls,
                     "last_page": page + 1,
                     "last_item": 0
                 })
-                self.save_paintings(data, paintings_file)
+                self.save_appraisals(data, appraisals_file)
                 
                 # Brief pause between pages
                 time.sleep(2)
         finally:
             # Final data save
-            self.save_paintings(data, paintings_file)
+            self.save_appraisals(data, appraisals_file)
         
-        # Sort all paintings by estimated value (highest first)
-        paintings_list.sort(key=lambda x: self._get_numeric_value(x.get('estimated_value_best', 0)), reverse=True)
+        # Sort all appraisals by estimated value (highest first)
+        appraisals_list.sort(key=lambda x: self._get_numeric_value(x.estimated_value_best), reverse=True)
         
-        return paintings_list
+        return appraisals_list
     
     def _get_numeric_value(self, value):
         """Convert a value to numeric for sorting."""
@@ -650,46 +713,45 @@ class PaintingAppraiser:
 
 
 
-    def print_appraisal_findings(self, appraisal: Dict):
+    def print_appraisal_findings(self, appraisal: Appraisal):
         """Print detailed appraisal findings for a single painting."""
-        painting = appraisal['painting_info']
+        painting = appraisal.painting_info
         
-        print(f"\n🎨 DETAILED APPRAISAL FINDINGS")
+        print(f"\n🎨 APPRAISAL FINDINGS:")
         print(f"{'='*60}")
-        print(f"Title: {painting['title']}")
-        print(f"Dimensions: {painting.get('dimensions', 'Unknown')}")
-        print(f"Current Price: {painting['current_price']}")
-        print(f"Listing URL: {painting['url']}")
+        print(f"ARTIST: {appraisal.artist or 'Unknown'}")
+        print(f"MEDIUM: {appraisal.medium or 'Unknown'}")
+        print(f"DIMENSIONS: {appraisal.dimensions or 'Unknown'}")
         
         print(f"\n💰 VALUATION:")
-        print(f"   Range: ${appraisal.get('estimated_value_min', 0):,.2f} - ${appraisal.get('estimated_value_max', 0):,.2f}")
-        print(f"   Best Estimate: ${appraisal.get('estimated_value_best', 0):,.2f}")
-        print(f"   Confidence Level: {appraisal.get('confidence_level', 'Unknown')}")
-        print(f"   Market Category: {appraisal.get('market_category', 'Unknown')}")
+        print(f"   Range: ${appraisal.estimated_value_min:,.2f} - ${appraisal.estimated_value_max:,.2f}")
+        print(f"   Best Estimate: ${appraisal.estimated_value_best:,.2f}")
+        print(f"   Confidence Level: {appraisal.confidence_level}")
+        print(f"   Market Category: {appraisal.market_category}")
         
         print(f"\n🔍 ANALYSIS:")
-        if appraisal.get('reasoning'):
-            print(f"   Reasoning: {appraisal['reasoning']}")
+        if appraisal.reasoning:
+            print(f"   Reasoning: {appraisal.reasoning}")
         
-        if appraisal.get('artist_market_status'):
-            print(f"   Artist Market Status: {appraisal['artist_market_status']}")
+        if appraisal.artist_market_status:
+            print(f"   Artist Market Status: {appraisal.artist_market_status}")
         
-        if appraisal.get('web_search_summary'):
-            print(f"   Web Research: {appraisal['web_search_summary']}")
+        if appraisal.web_search_summary:
+            print(f"   Web Research: {appraisal.web_search_summary}")
         
-        if appraisal.get('recent_sales_data'):
-            print(f"   Recent Sales: {appraisal['recent_sales_data']}")
+        if appraisal.recent_sales_data:
+            print(f"   Recent Sales: {appraisal.recent_sales_data}")
         
-        if appraisal.get('comparable_works'):
-            print(f"   Comparable Works: {appraisal['comparable_works']}")
+        if appraisal.comparable_works:
+            print(f"   Comparable Works: {appraisal.comparable_works}")
         
-        if appraisal.get('authentication_notes'):
-            print(f"   Authentication: {appraisal['authentication_notes']}")
+        if appraisal.authentication_notes:
+            print(f"   Authentication: {appraisal.authentication_notes}")
         
-        if appraisal.get('risk_factors'):
-            print(f"   Risk Factors: {appraisal['risk_factors']}")
+        if appraisal.risk_factors:
+            print(f"   Risk Factors: {appraisal.risk_factors}")
 
-    def print_summary(self, results: List[Dict]):
+    def print_summary(self, results: List[Appraisal]):
         """Print a summary of all paintings sorted by estimated value."""
         if not results:
             print(f"\nNo paintings were appraised.")
@@ -700,29 +762,35 @@ class PaintingAppraiser:
         print(f"{'='*60}")
         
         for i, appraisal in enumerate(results, 1):
-            painting = appraisal['painting_info']
-            print(f"\n{i}. {painting['title']}")
-            print(f"   Artist: {painting['artist']}")
-            print(f"   Current Price: {painting['current_price']}")
-            print(f"   Estimated Value: ${appraisal['estimated_value_best']:,.2f}")
-            print(f"   Confidence: {appraisal['confidence_level']}")
-            print(f"   URL: {painting['url']}")
-            if appraisal.get('reasoning'):
-                print(f"   Reasoning: {appraisal['reasoning'][:200]}...")
-            if appraisal.get('research_summary'):
-                print(f"   Research: {appraisal['research_summary'][:150]}...")
-            if appraisal.get('authentication_notes'):
-                print(f"   Authentication: {appraisal['authentication_notes'][:100]}...")
+            painting = appraisal.painting_info
+            print(f"\n{i}. {painting.title}")
+            print(f"   Artist: {appraisal.artist or 'Unknown'}")
+            if appraisal.description_summary:
+                print(f"   Description: {appraisal.description_summary[:150]}...")
+            if appraisal.medium:
+                print(f"   Medium: {appraisal.medium}")
+            if appraisal.dimensions:
+                print(f"   Dimensions: {appraisal.dimensions}")
+            print(f"   Current Price: {painting.current_price}")
+            print(f"   Estimated Value: ${appraisal.estimated_value_best:,.2f}")
+            print(f"   Confidence: {appraisal.confidence_level}")
+            print(f"   URL: {painting.url}")
+            if appraisal.reasoning:
+                print(f"   Reasoning: {appraisal.reasoning[:200]}...")
+            if appraisal.web_search_summary:
+                print(f"   Research: {appraisal.web_search_summary[:150]}...")
+            if appraisal.authentication_notes:
+                print(f"   Authentication: {appraisal.authentication_notes[:100]}...")
 
 
 def main():
     parser = argparse.ArgumentParser(description='Appraise paintings from ShopGoodwill.com')
     parser.add_argument('--max-pages', type=int, default=1000,
                       help='Maximum number of pages to process (default: 1000)')
-    parser.add_argument('--delay', type=float, default=1.0,
+    parser.add_argument('--delay', type=float, default=0.0,
                       help='Delay between API calls in seconds (default: 1.0)')
-    parser.add_argument('--paintings-file', default='appraisals.csv',
-                      help='Paintings data file for storing results and progress (default: appraisals.csv)')
+    parser.add_argument('--appraisals-file', dest='appraisals_file', default='appraisals.csv',
+                      help='Appraisals data file for storing results and progress (default: appraisals.csv)')
     parser.add_argument('--include-ended-auctions', dest='include_ended_auctions', action='store_true', default=False,
                       help='Include ended auctions as well')
     parser.add_argument('--no-include-ended-auctions', dest='include_ended_auctions', action='store_false',
@@ -751,10 +819,10 @@ def main():
     
     try:
         # Run the appraisal
-        results = appraiser.run_appraisal(args.max_pages, args.delay, args.paintings_file)
+        results = appraiser.run_appraisal(args.max_pages, args.delay, args.appraisals_file)
         
-        # Display results (they're already saved in the paintings file)
-        print(f"\nResults saved to {args.paintings_file}")
+        # Display results (they're already saved in the appraisals file)
+        print(f"\nResults saved to {args.appraisals_file}")
         appraiser.print_summary(results)
         
         # Print just the URLs for easy copying (sorted by value)
@@ -763,8 +831,8 @@ def main():
             print("PAINTING URLS (SORTED BY VALUE - HIGHEST FIRST):")
             print(f"{'='*60}")
             for appraisal in results:
-                best_estimate = appraiser._get_numeric_value(appraisal.get('estimated_value_best', 0))
-                print(f"${best_estimate:,.2f} - {appraisal['painting_info']['url']}")
+                best_estimate = appraiser._get_numeric_value(appraisal.estimated_value_best)
+                print(f"${best_estimate:,.2f} - {appraisal.painting_info.url}")
         
     except KeyboardInterrupt:
         print("\nProcess interrupted by user")
