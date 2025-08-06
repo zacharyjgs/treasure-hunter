@@ -408,7 +408,8 @@ class PaintingAppraiser:
             4. Style and time period - Analyze the artistic style and estimate when it was created
             5. Subject matter - Describe what the artwork depicts
             6. Overall condition - Note any visible damage, wear, or restoration
-            7. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
+            7. Frame and construction details - Examine the frame, stretcher bars, and frame joints as these can indicate the artwork's age and period value
+            8. Quality assessment - Evaluate the artistic quality (technique, composition, execution) as Excellent, Good, Average, or Poor
 
             STEP 2 - RESEARCH AND AUTHENTICATION (Only after Step 1 is complete):
             Use web search to research the following:
@@ -441,6 +442,7 @@ class PaintingAppraiser:
             2. AUTHENTICATION & CONDITION IMPACT:
                - Verify signature style matches research findings; note any red flags
                - Assess condition impact on value and factor restoration costs
+               - Examine frame construction, stretcher bars, and joinery methods as period indicators
                - Consider attribution certainty (signed vs. attributed vs. uncertain)
 
             3. MARKET VALUATION WITH BIAS ADJUSTMENT:
