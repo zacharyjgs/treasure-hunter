@@ -80,6 +80,7 @@ class Appraisal(BaseModel):
     signature_details: str
     back_markings: str
     frame_construction: str
+    appraised_at: str
     painting_info: PaintingInfo
 
 
@@ -109,6 +110,7 @@ class AppraisalResponse(BaseModel):
     signature_details: str  # Description of signature, monogram, or stamp found on artwork
     back_markings: str  # Auction house labels, gallery stickers, exhibition tags, or other back markings
     frame_construction: str  # Details about frame, stretcher bars, joints, and construction methods
+    appraised_at: str  # Timestamp when the appraisal was performed
 
 
 class PaintingAppraiser:
@@ -497,11 +499,11 @@ class PaintingAppraiser:
             - Description: {painting_info.description[:1000]}...
             """
             
-            # Debug: Print the image URLs being sent to OpenAI
-            print(f"📝 TITLE: {painting_info.title}")
-            print(f"🔗 LISTING URL: {painting_info.url}")
+            # Display painting information header
+            print(f"\n📝 TITLE: {painting_info.title}")
+            print(f"🔗 URL: {painting_info.url}")
             print(f"🏷️ CURRENT PRICE: {painting_info.current_price}")
-            print(f"🖼️ IMAGES ({len(available_images)}): {available_images}")
+            print(f"🖼️ ANALYZING {len(available_images)} IMAGES")
             
             # Build content array with text prompt and all available images
             content = [{"type": "input_text", "text": prompt}]
@@ -532,6 +534,9 @@ class PaintingAppraiser:
             
             # Extract structured data from Responses API using output_parsed
             appraisal_response = response.output_parsed
+            
+            # Add timestamp to the response
+            appraisal_response.appraised_at = datetime.now().isoformat()
             
             # Extract cost information from response
             usage = response.usage if hasattr(response, 'usage') else None
@@ -588,6 +593,7 @@ class PaintingAppraiser:
                 signature_details=appraisal_response.signature_details,
                 back_markings=appraisal_response.back_markings,
                 frame_construction=appraisal_response.frame_construction,
+                appraised_at=appraisal_response.appraised_at,
                 painting_info=painting_info
             )
 
@@ -666,6 +672,7 @@ class PaintingAppraiser:
                     signature_details=str(row.get('signature_details', '')),
                     back_markings=str(row.get('back_markings', '')),
                     frame_construction=str(row.get('frame_construction', '')),
+                    appraised_at=str(row.get('appraised_at', datetime.now().isoformat())),
                     painting_info=painting_info
                 )
                 appraisals.append(appraisal)
@@ -713,6 +720,7 @@ class PaintingAppraiser:
                     'signature_details': appraisal.signature_details,
                     'back_markings': appraisal.back_markings,
                     'frame_construction': appraisal.frame_construction,
+                    'appraised_at': appraisal.appraised_at,
                     'title': appraisal.painting_info.title,
                     'current_price': appraisal.painting_info.current_price,
                     'url': appraisal.painting_info.url,
@@ -731,7 +739,7 @@ class PaintingAppraiser:
             column_order = [
                 'estimated_value_best', 'estimated_value_min', 'estimated_value_max',
                 'confidence_level', 'market_category', 
-                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'signature_details', 'back_markings', 'frame_construction', 'current_price', 'url', 'image_url', 'image_urls',
+                'title', 'artist', 'description_summary', 'medium', 'dimensions', 'style', 'time_period', 'subject_matter', 'condition', 'quality', 'signature_details', 'back_markings', 'frame_construction', 'appraised_at', 'current_price', 'url', 'image_url', 'image_urls',
                 'reasoning', 'risk_factors', 'web_search_summary', 'recent_sales_data',
                 'artist_market_status', 'authentication_notes', 'comparable_works', 'description'
             ]
@@ -783,7 +791,8 @@ class PaintingAppraiser:
                     if painting_basic.url in processed_urls:
                         continue
                     
-                    print(f"\nProcessing painting {i+1}/{len(paintings)}: {painting_basic.title}")
+                    print(f"\n{'='*80}")
+                    print(f"Processing painting {i+1}/{len(paintings)}: {painting_basic.title}")
                     
                     try:
                         # Note: API already filters for active auctions when active_auctions_only=True
@@ -800,7 +809,6 @@ class PaintingAppraiser:
                         if not appraisal:
                             processed_urls.add(painting_basic.url)
                             continue
-                        print("─" * 80)
                         
                         best_estimate = appraisal.estimated_value_best
                         # Ensure best_estimate is a number
@@ -868,48 +876,67 @@ class PaintingAppraiser:
     def print_appraisal_findings(self, appraisal: Appraisal):
         """Print detailed appraisal findings for a single painting."""
         painting = appraisal.painting_info
+                
+        # Basic artwork information
+        print(f"\n🔍 FINDINGS")
+        print(f"{'·'*40}")
+        print(f"🎭 ARTIST: {appraisal.artist or 'Unknown'}")
+        print(f"🖌️ MEDIUM: {appraisal.medium or 'Unknown'}")
+        print(f"📏 DIMENSIONS: {appraisal.dimensions or 'Unknown'}")
+        print(f"🎨 STYLE: {appraisal.style or 'Unknown'}")
+        print(f"📅 TIME PERIOD: {appraisal.time_period or 'Unknown'}")
+        print(f"🌄 SUBJECT: {appraisal.subject_matter or 'Unknown'}")
+        print(f"📊 CONDITION: {appraisal.condition or 'Unknown'}")
+        print(f"⭐ QUALITY: {appraisal.quality or 'Unknown'}")
+        print(f"✍️ SIGNATURE: {appraisal.signature_details or 'Not specified'}")
+        print(f"📋 BACK MARKINGS: {appraisal.back_markings or 'None noted'}")
+        print(f"🔲 FRAME: {appraisal.frame_construction or 'Not analyzed'}")
         
-        print(f"\n🎨 APPRAISAL FINDINGS:")
-        print(f"{'='*60}")
-        print(f"ARTIST: {appraisal.artist or 'Unknown'}")
-        print(f"MEDIUM: {appraisal.medium or 'Unknown'}")
-        print(f"DIMENSIONS: {appraisal.dimensions or 'Unknown'}")
-        print(f"STYLE: {appraisal.style or 'Unknown'}")
-        print(f"TIME PERIOD: {appraisal.time_period or 'Unknown'}")
-        print(f"SUBJECT MATTER: {appraisal.subject_matter or 'Unknown'}")
-        print(f"CONDITION: {appraisal.condition or 'Unknown'}")
-        print(f"QUALITY: {appraisal.quality or 'Unknown'}")
-        print(f"SIGNATURE: {appraisal.signature_details or 'Not specified'}")
-        print(f"BACK MARKINGS: {appraisal.back_markings or 'None noted'}")
-        print(f"FRAME CONSTRUCTION: {appraisal.frame_construction or 'Not analyzed'}")
+        print(f"\n💎 VALUATION")
+        print(f"{'·'*40}")
+        print(f"💰 RANGE: ${appraisal.estimated_value_min:,.2f} - ${appraisal.estimated_value_max:,.2f}")
+        print(f"🎯 BEST ESTIMATE: ${appraisal.estimated_value_best:,.2f}")
+        print(f"🎚️ CONFIDENCE: {appraisal.confidence_level}")
+        print(f"🏪 MARKET: {appraisal.market_category}")
         
-        print(f"\n💎 VALUATION:")
-        print(f"   Range: ${appraisal.estimated_value_min:,.2f} - ${appraisal.estimated_value_max:,.2f}")
-        print(f"   Best Estimate: ${appraisal.estimated_value_best:,.2f}")
-        print(f"   Confidence Level: {appraisal.confidence_level}")
-        print(f"   Market Category: {appraisal.market_category}")
+        print(f"\n📝 DETAILED ANALYSIS")
+        print(f"{'·'*80}")
         
-        print(f"\n🔍 ANALYSIS:")
         if appraisal.reasoning:
-            print(f"   Reasoning: {appraisal.reasoning}")
+            reasoning_text = self._wrap_text(appraisal.reasoning, 75, "💭 REASONING: ")
+            print(reasoning_text)
         
         if appraisal.artist_market_status:
-            print(f"   Artist Market Status: {appraisal.artist_market_status}")
+            market_text = self._wrap_text(appraisal.artist_market_status, 75, "📈 MARKET STATUS: ")
+            print(f"\n{market_text}")
         
         if appraisal.web_search_summary:
-            print(f"   Web Research: {appraisal.web_search_summary}")
+            research_text = self._wrap_text(appraisal.web_search_summary, 75, "🌐 WEB RESEARCH: ")
+            print(f"\n{research_text}")
         
         if appraisal.recent_sales_data:
-            print(f"   Recent Sales: {appraisal.recent_sales_data}")
+            sales_text = self._wrap_text(appraisal.recent_sales_data, 75, "💵 RECENT SALES: ")
+            print(f"\n{sales_text}")
         
         if appraisal.comparable_works:
-            print(f"   Comparable Works: {appraisal.comparable_works}")
+            comparable_text = self._wrap_text(appraisal.comparable_works, 75, "🔄 COMPARABLE WORKS: ")
+            print(f"\n{comparable_text}")
         
         if appraisal.authentication_notes:
-            print(f"   Authentication: {appraisal.authentication_notes}")
+            auth_text = self._wrap_text(appraisal.authentication_notes, 75, "✅ AUTHENTICATION: ")
+            print(f"\n{auth_text}")
         
         if appraisal.risk_factors:
-            print(f"   Risk Factors: {appraisal.risk_factors}")
+            risk_text = self._wrap_text(appraisal.risk_factors, 75, "⚠️ RISK FACTORS: ")
+            print(f"\n{risk_text}")
+    
+    def _wrap_text(self, text: str, width: int = 75, prefix: str = "") -> str:
+        """Wrap long text with proper indentation."""
+        import textwrap
+        
+        # First line gets the prefix
+        wrapper = textwrap.TextWrapper(width=width, initial_indent=prefix, subsequent_indent=" " * len(prefix))
+        return wrapper.fill(text)
     
     def _get_numeric_value(self, value):
         """Convert a value to numeric for sorting."""
@@ -1021,7 +1048,7 @@ def main():
                       help='Maximum number of pages to process (default: 1000)')
     parser.add_argument('--delay', type=float, default=0.0,
                       help='Delay between API calls in seconds (default: 1.0)')
-    parser.add_argument('--appraisals-file', dest='appraisals_file', default='appraisals.csv',
+    parser.add_argument('--file', dest='appraisals_file', default='appraisals.csv',
                       help='Appraisals data file for storing results and progress (default: appraisals.csv)')
     parser.add_argument('--include-ended-auctions', dest='include_ended_auctions', action='store_true', default=False,
                       help='Include ended auctions as well')
